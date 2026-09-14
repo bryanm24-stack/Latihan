@@ -1,0 +1,7 @@
+$kind: collection
+description: |-
+  Praktikum 1. Jalankan berurutan lewat Runner.
+
+  BaseUrl diatur di environment `local`.
+variables:
+  bukuId: ""

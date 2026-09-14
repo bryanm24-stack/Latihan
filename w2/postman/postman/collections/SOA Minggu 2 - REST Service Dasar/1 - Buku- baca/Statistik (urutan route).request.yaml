@@ -1,0 +1,12 @@
+$kind: http-request
+description: Route ini harus dideklarasikan SEBELUM /:bukuId. Kalau 404, urutannya salah.
+url: "{{baseUrl}}/buku/statistik"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('bukan 404 - urutan route benar', () => {
+        pm.response.to.have.status(200);
+      });
+    language: text/javascript
+order: 5000

@@ -1,0 +1,15 @@
+$kind: http-request
+name: DELETE koleksi -> 405
+description: Alamat /buku ADA, tapi DELETE tidak diizinkan. 405, bukan 404.
+url: "{{baseUrl}}/buku"
+method: DELETE
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('405 Method Not Allowed', () => pm.response.to.have.status(405));
+      pm.test('menyertakan header Allow (RFC 9110)', () => {
+        pm.expect(pm.response.headers.has('Allow')).to.be.true;
+        pm.expect(pm.response.headers.get('Allow')).to.include('GET');
+      });
+    language: text/javascript
+order: 1000

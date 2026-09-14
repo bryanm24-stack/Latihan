@@ -1,0 +1,22 @@
+$kind: http-request
+url: "{{baseUrl}}/contoh"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "nama": "jojo",
+      "umur": 40,
+      "jk": "L"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200', () => pm.response.to.have.status(200));
+      pm.test('body terbaca', () => {
+        pm.expect(pm.response.json().diterima.nama).to.eql('jojo');
+      });
+    language: text/javascript
+order: 3000

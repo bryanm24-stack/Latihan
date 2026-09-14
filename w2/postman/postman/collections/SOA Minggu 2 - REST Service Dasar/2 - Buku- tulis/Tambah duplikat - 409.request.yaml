@@ -1,0 +1,23 @@
+$kind: http-request
+name: Tambah duplikat -> 409
+description: Datanya valid, tapi bentrok dengan yang sudah ada. 409 Conflict, bukan 400.
+url: "{{baseUrl}}/buku"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "judul": "Dune",
+      "penulis": "Frank Herbert",
+      "tahun_terbit": 1965,
+      "harga": 150000,
+      "stok": 5,
+      "kategori": "novel"
+    }
+scripts:
+  - type: afterResponse
+    code: pm.test('409 Conflict', () => pm.response.to.have.status(409));
+    language: text/javascript
+order: 2000
