@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{baseUrl}}/kendaraan/{{kendaraanId}}"
+method: GET
+order: 4503543542683100

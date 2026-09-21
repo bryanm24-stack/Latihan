@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{baseUrl}}/kendaraan"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"nama\": \"Honda Brio Cancel Test\",\r
+
+    \  \"jenis\": \"mobil\",\r
+
+    \  \"plat_nomor\": \"L 8899 CN\",\r
+
+    \  \"tarif_per_hari\": 125000\r
+
+    }"
+order: 1789995015163

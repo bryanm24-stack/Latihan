@@ -1,0 +1,18 @@
+$kind: http-request
+name: DELETE koleksi -> 405
+description: |-
+  **DELETE** `/api/v1/buku` *(tanpa `:bukuId` — alamat KOLEKSI, bukan satu resource)*
+
+  Ekspektasi: `405 Method Not Allowed` + header **Allow** berisi daftar method yang boleh (`GET, POST`). BUKAN `404` — alamat `/api/v1/buku` jelas ada, cuma `DELETE` di alamat itu (menghapus SELURUH koleksi) sengaja tidak diizinkan.
+url: "{{baseUrl}}/buku"
+method: DELETE
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('405 Method Not Allowed', () => pm.response.to.have.status(405));
+      pm.test('menyertakan header Allow (RFC 9110)', () => {
+        pm.expect(pm.response.headers.has('Allow')).to.be.true;
+        pm.expect(pm.response.headers.get('Allow')).to.include('GET');
+      });
+    language: text/javascript
+order: 1000

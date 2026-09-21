@@ -1,0 +1,20 @@
+$kind: http-request
+description: |-
+  **GET** `/api/v1/buku?keyword=potter`
+
+  **Query:** `keyword` — dicocokkan (case-insensitive, substring) ke `judul` ATAU `penulis`.
+
+  Ekspektasi: `200`, `total` bernilai `1` (cuma "Harry Potter and the Philosopher's Stone" yang cocok).
+url: "{{baseUrl}}/buku?keyword=potter"
+method: GET
+queryParams:
+  keyword: potter
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200', () => pm.response.to.have.status(200));
+      pm.test('hasil tersaring', () => {
+        pm.expect(pm.response.json().total).to.eql(1);
+      });
+    language: text/javascript
+order: 2000

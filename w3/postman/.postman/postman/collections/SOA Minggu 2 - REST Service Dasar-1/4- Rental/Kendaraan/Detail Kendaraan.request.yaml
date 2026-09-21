@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{baseUrl}}/kendaraan/{{kendaraanId}}"
+method: GET
+body:
+  type: json
+  content: ""
+scripts:
+  - type: afterResponse
+    code: ""
+    language: text/javascript
+order: 3783931045781723

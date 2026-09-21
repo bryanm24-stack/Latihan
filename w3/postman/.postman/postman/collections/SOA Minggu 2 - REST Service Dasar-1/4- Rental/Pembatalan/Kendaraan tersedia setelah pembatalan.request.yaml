@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{baseUrl}}/kendaraan/3"
+method: GET
+order: 4483871520162303

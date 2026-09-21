@@ -1,0 +1,17 @@
+$kind: http-request
+name: Alamat tidak ada -> 404
+description: |-
+  **GET** `/api/v1/tidak-ada` *(alamat yang memang tidak pernah didaftarkan di routes manapun)*
+
+  Ekspektasi: `404` bukan `405` (bandingkan dua request di atas), dan `Content-Type` response tetap JSON — bukan halaman HTML error bawaan Express.
+url: "{{baseUrl}}/tidak-ada"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('404 bukan 405', () => pm.response.to.have.status(404));
+      pm.test('respons JSON, bukan HTML', () => {
+        pm.expect(pm.response.headers.get('Content-Type')).to.include('json');
+      });
+    language: text/javascript
+order: 3000

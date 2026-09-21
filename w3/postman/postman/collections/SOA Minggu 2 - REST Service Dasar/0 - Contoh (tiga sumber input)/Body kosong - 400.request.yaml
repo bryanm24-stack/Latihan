@@ -1,0 +1,9 @@
+$kind: http-request
+name: Body kosong -> 400
+url: "{{baseUrl}}/contoh"
+method: POST
+scripts:
+  - type: afterResponse
+    code: pm.test('body kosong ditolak', () => pm.response.to.have.status(400));
+    language: text/javascript
+order: 4000

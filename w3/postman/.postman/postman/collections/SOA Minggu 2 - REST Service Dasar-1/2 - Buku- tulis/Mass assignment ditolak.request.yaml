@@ -1,0 +1,46 @@
+$kind: http-request
+description: |-
+  **POST** `/api/v1/buku`
+
+  **Body — field valid DITAMBAH dua field yang tidak seharusnya ada:**
+  ```json
+  {
+    "judul": "Buku Penyusup",
+    "penulis": "Penyerang",
+    "tahun_terbit": 2020,
+    "harga": 1,
+    "kategori": "novel",
+    "isAdmin": true,
+    "diskon": 100
+  }
+  ```
+
+  Ekspektasi: `201` (datanya valid), TAPI response TIDAK boleh punya property `isAdmin` atau `diskon`. Ini bukti bahwa server membangun ulang objek dari field yang diizinkan saja (`value` hasil `validate()`), bukan menyalin `req.body` mentah-mentah — pertahanan terhadap **mass assignment** (OWASP API Security Top 10).
+url: "{{baseUrl}}/buku"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "judul": "Buku Penyusup",
+      "penulis": "Penyerang",
+      "tahun_terbit": 2020,
+      "harga": 1,
+      "kategori": "novel",
+      "isAdmin": true,
+      "diskon": 100
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201', () => pm.response.to.have.status(201));
+      pm.test('isAdmin TIDAK ikut tersimpan', () => {
+        pm.expect(pm.response.json()).to.not.have.property('isAdmin');
+      });
+      pm.test('diskon TIDAK ikut tersimpan', () => {
+        pm.expect(pm.response.json()).to.not.have.property('diskon');
+      });
+    language: text/javascript
+order: 4000

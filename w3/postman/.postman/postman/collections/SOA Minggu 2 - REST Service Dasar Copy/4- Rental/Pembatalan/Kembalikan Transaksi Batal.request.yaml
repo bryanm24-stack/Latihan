@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{baseUrl}}/transaksi/{{transaksiBatalId}}/pengembalian"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"tanggal_kembali\": \"2026-10-03\"\r
+
+    }"
+order: 4468451085638785

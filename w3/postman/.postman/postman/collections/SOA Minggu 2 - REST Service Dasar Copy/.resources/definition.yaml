@@ -1,0 +1,64 @@
+$kind: collection
+description: |
+  # SOA Minggu 3 — Koleksi Praktikum (Buku & Karakter)
+
+  Koleksi ini dites terhadap dua versi backend yang **endpoint-nya identik**:
+  Minggu 2 (data array di memori) dan Minggu 3 (data MySQL). Kalau kalian baru
+  mulai dari Minggu 3, langsung `npm run db:migrate` lalu jalankan koleksi ini —
+  tidak perlu tahu versi array-nya sama sekali.
+
+  ## Cara pakai
+
+  1. Pilih environment **local** (pojok kanan atas Postman) — ini yang mengisi `{{baseUrl}}`.
+  2. Klik collection ini → **Run** (Runner) → jalankan SEMUA folder berurutan dari atas ke bawah.
+     Urutan penting: folder "2 - Buku: tulis" membuat sebuah buku baru lalu MENGHAPUSNYA
+     lagi di akhir, dan request-request di dalamnya saling bergantung lewat variabel `{{bukuId}}`.
+  3. Hasil yang benar: **28 request, 49 assertion, semuanya hijau.**
+
+  ## Tiga tempat data masuk (ringkasan — detail lengkap di PANDUAN.md §3)
+
+  | Sumber | Contoh di koleksi ini | Kapan dipakai |
+  |---|---|---|
+  | **Query** (`req.query`) | `?keyword=potter`, `?sort=harga&order=desc` | Filter, cari, urutkan, paging — semuanya OPSIONAL |
+  | **Path Param** (`req.params`) | `/buku/1`, `/buku/{{bukuId}}/karakter/2` | MENUNJUK resource yang mana — WAJIB, bagian dari identitas |
+  | **Body** (`req.body`) | JSON di tab Body pada request POST/PUT/PATCH | Data yang dibuat/diubah |
+
+  ## Pemetaan CRUD → HTTP method (resource `buku`)
+
+  | Operasi | Method | Contoh URL | Folder |
+  |---|---|---|---|
+  | **C**reate | `POST` | `/api/v1/buku` | 2 - Buku: tulis |
+  | **R**ead (banyak) | `GET` | `/api/v1/buku?keyword=...` | 1 - Buku: baca |
+  | **R**ead (satu) | `GET` | `/api/v1/buku/:bukuId` | 1 - Buku: baca |
+  | **U**pdate (seluruh) | `PUT` | `/api/v1/buku/:bukuId` | 2 - Buku: tulis |
+  | **U**pdate (sebagian) | `PATCH` | `/api/v1/buku/:bukuId` | 2 - Buku: tulis |
+  | **D**elete | `DELETE` | `/api/v1/buku/:bukuId` | 2 - Buku: tulis |
+
+  ## Status code yang dipakai, dan kapan
+
+  | Code | Arti di API ini |
+  |---|---|
+  | `200` | Berhasil — GET, PUT, PATCH, DELETE. Termasuk daftar/hasil pencarian KOSONG. |
+  | `201` | Berhasil membuat resource baru (POST) — cek header `Location`. |
+  | `400` | Body/format salah — validasi gagal, atau body kosong saat wajib ada isi. |
+  | `404` | Resource yang DIMINTA SECARA SPESIFIK tidak ada (id salah, alamat salah). |
+  | `405` | Alamatnya ADA, tapi method-nya tidak diizinkan di situ. Cek header `Allow`. |
+  | `409` | Data valid, tapi BENTROK dengan yang sudah ada (judul kembar). |
+
+  ## Variabel `{{bukuId}}`
+
+  Request **"Tambah buku"** di folder "2 - Buku: tulis" menyimpan `id` dari
+  response-nya ke variabel collection `bukuId` lewat script Tests:
+  ```js
+  pm.collectionVariables.set('bukuId', pm.response.json().id);
+  ```
+  Semua request setelahnya di folder itu (PUT, PATCH, DELETE, dan cek 404) memakai
+  `{{bukuId}}` di URL-nya — bukan angka `1` yang ditulis manual. Ini kenapa
+  urutan menjalankan request PENTING: kalau "Tambah buku" belum pernah dijalankan,
+  `{{bukuId}}` kosong dan request sesudahnya akan memanggil `/buku/` (tanpa id).
+variables:
+  bukuId: ""
+  kendaraanId: "1"
+  pelangganId: ""
+  transaksiId: ""
+  kendaraanServisId: ""

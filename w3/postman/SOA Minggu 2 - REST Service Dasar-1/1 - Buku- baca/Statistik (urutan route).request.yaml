@@ -1,0 +1,17 @@
+$kind: http-request
+description: |-
+  **GET** `/api/v1/buku/statistik`
+
+  **Query / Path Param:** tidak ada.
+
+  Route ini HARUS dideklarasikan di `routes/buku.js` SEBELUM `/:bukuId`. Kalau urutannya terbalik, Express mencocokkan `"statistik"` sebagai NILAI `bukuId` dan request ini berakhir `404` yang membingungkan. Ekspektasi di sini: `200`.
+url: "{{baseUrl}}/buku/statistik"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('bukan 404 - urutan route benar', () => {
+        pm.response.to.have.status(200);
+      });
+    language: text/javascript
+order: 5000

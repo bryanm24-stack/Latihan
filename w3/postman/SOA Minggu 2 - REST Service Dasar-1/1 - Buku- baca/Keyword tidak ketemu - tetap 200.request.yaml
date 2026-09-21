@@ -1,0 +1,21 @@
+$kind: http-request
+name: Keyword tidak ketemu -> tetap 200
+description: |-
+  **GET** `/api/v1/buku?keyword=zzzz`
+
+  **Query:** `keyword` — sengaja diisi sesuatu yang pasti tidak ada.
+
+  **PENTING:** daftar kosong BUKAN error. Ekspektasi tetap `200` dengan `data: []`, BUKAN `404`. Bandingkan dengan request "Buku tidak ada -> 404" di bawah, yang memakai path param, bukan query — itu yang membuat hasilnya `404`, bukan sifat "tidak ketemu"-nya.
+url: "{{baseUrl}}/buku?keyword=zzzz"
+method: GET
+queryParams:
+  keyword: zzzz
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('tetap 200, bukan 404', () => pm.response.to.have.status(200));
+      pm.test('data kosong', () => {
+        pm.expect(pm.response.json().data).to.be.an('array').that.is.empty;
+      });
+    language: text/javascript
+order: 3000

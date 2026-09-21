@@ -1,0 +1,30 @@
+$kind: http-request
+description: |-
+  **GET** `/api/v1/buku?sort=harga&order=desc&limit=2`
+
+  **Query:**
+  - `sort` — nama kolom, HARUS ada di whitelist (`id`, `judul`, `harga`, `tahun_terbit`, `stok`)
+  - `order` — `asc` (default) atau `desc`
+  - `limit` — jumlah maksimal hasil per halaman
+  - `offset` — (tidak dipakai di request ini) mulai dari baris ke berapa
+
+  Ekspektasi: `200`, `data.length` persis `2`, dan `data[0].harga >= data[1].harga` (urut menurun berdasarkan harga).
+url: "{{baseUrl}}/buku?sort=harga&order=desc&limit=2"
+method: GET
+queryParams:
+  sort: harga
+  order: desc
+  limit: "2"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200', () => pm.response.to.have.status(200));
+      pm.test('limit dipatuhi', () => {
+        pm.expect(pm.response.json().data.length).to.eql(2);
+      });
+      pm.test('urut menurun', () => {
+        const d = pm.response.json().data;
+        pm.expect(d[0].harga).to.be.at.least(d[1].harga);
+      });
+    language: text/javascript
+order: 4000

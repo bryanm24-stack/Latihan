@@ -1,0 +1,13 @@
+$kind: http-request
+description: Parameter :jk? opsional.
+url: "{{baseUrl}}/contoh/jojo/umur/40/jk"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200', () => pm.response.to.have.status(200));
+      pm.test('default jk terisi', () => {
+        pm.expect(pm.response.json().jk).to.eql('Tidak Tahu');
+      });
+    language: text/javascript
+order: 2000

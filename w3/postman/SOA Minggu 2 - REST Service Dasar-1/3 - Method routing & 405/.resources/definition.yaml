@@ -1,0 +1,9 @@
+$kind: collection
+description: |-
+  Tiga request ini membandingkan **404 vs 405** — dua status yang gampang tertukar.
+
+  - `404` = alamatnya TIDAK ADA.
+  - `405` = alamatnya ADA, tapi method yang kalian pakai tidak didukung di situ.
+
+  Perhatikan header **Allow** di response 405 — RFC 9110 mewajibkan server menyebutkan method apa saja yang seharusnya boleh dipakai di alamat itu.
+order: 4000

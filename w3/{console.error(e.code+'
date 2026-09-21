@@ -1,0 +1,12 @@
+--- node processes ---
+
+ProcessId CommandLine                                                          
+--------- -----------                                                          
+     3400 "C:\Program Files\nodejs\node.exe" "C:\Program Files\nodejs/node_m...
+     6220 "node"   "C:\Users\ASUS\AppData\Roaming\npm\\node_modules\nodemon\...
+    22108 "C:\Program Files\nodejs\node.exe" index.js                          
+--- list endpoint ---
+{"total":4,"data":[{"id":1,"nama":"Honda Beat","jenis":"motor","plat_nomor":"L 1234 AB","tarif_per_hari":75000,"status":"tersedia"},{"id":2,"nama":"Toyota Avanza","jenis":"mobil","plat_nomor":"L 5678 CD","tarif_per_hari":350000,"status":"tersedia"},{"id":3,"nama":"Honda Vario","jenis":"motor","plat_nomor":"L 9012 EF","tarif_per_hari":100000,"status":"servis"},{"id":4,"nama":"Toyota Innova Rental Test","jenis":"mobil","plat_nomor":"L 7788 RT","tarif_per_hari":100000,"status":"tersedia"}]}
+--- mysql probe via app config ---
+
+

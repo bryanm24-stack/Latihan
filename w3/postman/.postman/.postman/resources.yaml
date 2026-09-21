@@ -1,0 +1,15 @@
+# Use this workspace to collaborate
+workspace:
+  id: 9c3e738b-8908-46e4-8e28-fbb90125a858
+
+# Each entry here maps a local resource to one or more corresponding objects in Postman Cloud
+
+cloudResources:
+  collections:
+    ../postman/collections/SOA Minggu 2 - REST Service Dasar-1: d4261564-2a02-4d49-810c-1e0d8e6e4e26
+
+# All resources in the `postman/` folder are automatically registered in Local View.
+# Point to additional files outside the `postman/` folder to register them individually. Example:
+#localResources:
+#  collections:
+#    - ../tests/E2E Test Collection/

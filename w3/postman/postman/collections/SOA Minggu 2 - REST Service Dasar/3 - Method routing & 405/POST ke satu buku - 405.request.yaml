@@ -1,0 +1,9 @@
+$kind: http-request
+name: POST ke satu buku -> 405
+url: "{{baseUrl}}/buku/1"
+method: POST
+scripts:
+  - type: afterResponse
+    code: pm.test('405', () => pm.response.to.have.status(405));
+    language: text/javascript
+order: 2000

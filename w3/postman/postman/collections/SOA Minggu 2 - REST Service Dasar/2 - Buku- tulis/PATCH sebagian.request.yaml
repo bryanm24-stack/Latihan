@@ -1,0 +1,24 @@
+$kind: http-request
+description: Hanya harga yang dikirim. Field lain harus tetap utuh.
+url: "{{baseUrl}}/buku/{{bukuId}}"
+method: PATCH
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "harga": 175000
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200', () => pm.response.to.have.status(200));
+      pm.test('harga berubah', () => {
+        pm.expect(pm.response.json().harga).to.eql(175000);
+      });
+      pm.test('field lain TETAP ada (beda dengan PUT)', () => {
+        pm.expect(pm.response.json().penulis).to.eql('Frank Herbert');
+      });
+    language: text/javascript
+order: 7000

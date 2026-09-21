@@ -1,0 +1,30 @@
+$kind: http-request
+description: Field isAdmin dan diskon tidak ada di aturan validasi, jadi harus dibuang.
+url: "{{baseUrl}}/buku"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "judul": "Buku Penyusup",
+      "penulis": "Penyerang",
+      "tahun_terbit": 2020,
+      "harga": 1,
+      "kategori": "novel",
+      "isAdmin": true,
+      "diskon": 100
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201', () => pm.response.to.have.status(201));
+      pm.test('isAdmin TIDAK ikut tersimpan', () => {
+        pm.expect(pm.response.json()).to.not.have.property('isAdmin');
+      });
+      pm.test('diskon TIDAK ikut tersimpan', () => {
+        pm.expect(pm.response.json()).to.not.have.property('diskon');
+      });
+    language: text/javascript
+order: 4000

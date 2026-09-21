@@ -1,0 +1,23 @@
+$kind: http-request
+url: "{{baseUrl}}/pelanggan"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"nama\": \"Pelanggan Duplikat\",\r
+
+    \  \"no_ktp\": \"3578010101018888\",\r
+
+    \  \"no_hp\": \"089999999999\"\r
+
+    }"
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"[R2] KTP duplikat menghasilkan 409\", function () {\r
+
+      \    pm.response.to.have.status(409);\r
+
+      });"
+    language: text/javascript
+order: 3661076094629462

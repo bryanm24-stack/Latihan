@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{baseUrl}}/transaksi/{{transaksiBatalId}}/pembatalan"
+method: POST
+order: 4442974625577224

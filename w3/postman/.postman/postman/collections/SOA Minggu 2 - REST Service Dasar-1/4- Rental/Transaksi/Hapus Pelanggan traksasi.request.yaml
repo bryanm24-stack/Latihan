@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{baseUrl}}/pelanggan/{{pelangganId}}"
+method: DELETE
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"[R9] Pelanggan dengan transaksi aktif tidak boleh dihapus\", function () {\r
+
+      \    pm.response.to.have.status(409);\r
+
+      });"
+    language: text/javascript
+order: 4501836530971435

@@ -1,0 +1,42 @@
+$kind: http-request
+description: |-
+  **POST** `/api/v1/buku`
+
+  **Body (raw JSON) — semua field WAJIB kecuali `stok`:**
+  ```json
+  {
+    "judul": "Dune",
+    "penulis": "Frank Herbert",
+    "tahun_terbit": 1965,
+    "harga": 150000,
+    "stok": 5,
+    "kategori": "novel"
+  }
+  ```
+
+  Ekspektasi: `201 Created` + header **Location** berisi `/api/v1/buku/<id baru>`. Script Tests pada request ini menyimpan `id` dari response ke variabel collection `{{bukuId}}`, dipakai oleh SEMUA request setelah ini di folder ini.
+url: "{{baseUrl}}/buku"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "judul": "Dune",
+      "penulis": "Frank Herbert",
+      "tahun_terbit": 1965,
+      "harga": 150000,
+      "stok": 5,
+      "kategori": "novel"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201 Created', () => pm.response.to.have.status(201));
+      pm.test('ada header Location', () => {
+        pm.expect(pm.response.headers.get('Location')).to.match(/^\/api\/v1\/buku\/\d+$/);
+      });
+      pm.collectionVariables.set('bukuId', pm.response.json().id);
+    language: text/javascript
+order: 1000

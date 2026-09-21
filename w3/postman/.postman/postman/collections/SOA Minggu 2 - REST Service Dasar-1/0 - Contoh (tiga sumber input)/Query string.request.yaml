@@ -1,0 +1,26 @@
+$kind: http-request
+description: |-
+  **GET** `/api/v1/contoh?nama=jojo&umur=40&min=100&max=45`
+
+  **Query:** `nama`, `umur`, `min`, `max` — semuanya opsional, dibaca lewat `req.query`.
+
+  Tujuan: membuktikan **semua nilai dari `req.query` adalah string**, walau terlihat seperti angka di URL. Perhatikan response `tipe_umur` (selalu `"string"`) dan bandingkan `a_penjumlahan.salah` vs `.benar`.
+url: "{{baseUrl}}/contoh?nama=jojo&umur=40&min=100&max=45"
+method: GET
+queryParams:
+  nama: jojo
+  umur: "40"
+  min: "100"
+  max: "45"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200', () => pm.response.to.have.status(200));
+      pm.test('umur selalu string', () => {
+        pm.expect(pm.response.json().tipe_umur).to.eql('string');
+      });
+      pm.test('+ menyambung teks, bukan menjumlah', () => {
+        pm.expect(pm.response.json().a_penjumlahan.salah).to.eql('401');
+      });
+    language: text/javascript
+order: 1000

@@ -1,0 +1,28 @@
+$kind: http-request
+url: "{{baseUrl}}/pelanggan/{{pelangganId}}"
+method: GET
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"Status 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      const json = pm.response.json();\r
+
+      \r
+
+      pm.test(\"ID pelanggan sesuai\", function () {\r
+
+      \    pm.expect(json.id).to.eql(\r
+
+      \        Number(pm.collectionVariables.get(\"pelangganId\"))\r
+
+      \    );\r
+
+      });"
+    language: text/javascript
+order: 3213186966653313

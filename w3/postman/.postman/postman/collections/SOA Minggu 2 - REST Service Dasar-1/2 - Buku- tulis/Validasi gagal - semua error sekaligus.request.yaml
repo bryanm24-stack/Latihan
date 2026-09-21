@@ -1,0 +1,44 @@
+$kind: http-request
+name: Validasi gagal -> semua error sekaligus
+description: |-
+  **POST** `/api/v1/buku`
+
+  **Body — sengaja rusak di banyak field sekaligus:**
+  ```json
+  {
+    "judul": "ab",
+    "tahun_terbit": 1800,
+    "harga": "mahal",
+    "kategori": "majalah"
+  }
+  ```
+  Rusak di mana: `judul` kurang dari 3 karakter, `penulis` tidak dikirim sama sekali, `tahun_terbit` di bawah minimum 1900, `harga` bukan angka, `kategori` bukan salah satu nilai yang diizinkan.
+
+  Ekspektasi: `400`, dan `errors` berisi **minimal 4 field sekaligus** — bukan berhenti di kesalahan pertama yang ditemukan.
+url: "{{baseUrl}}/buku"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "judul": "ab",
+      "tahun_terbit": 1800,
+      "harga": "mahal",
+      "kategori": "majalah"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('400', () => pm.response.to.have.status(400));
+      pm.test('melaporkan >=4 field sekaligus', () => {
+        const e = pm.response.json().errors;
+        pm.expect(Object.keys(e).length).to.be.at.least(4);
+      });
+      pm.test('errors per field berupa array', () => {
+        Object.values(pm.response.json().errors).forEach(v =>
+          pm.expect(v).to.be.an('array'));
+      });
+    language: text/javascript
+order: 3000

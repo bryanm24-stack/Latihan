@@ -1,0 +1,36 @@
+$kind: http-request
+url: "{{baseUrl}}/transaksi?status=berjalan&kendaraan_id={{kendaraanId}}&pelanggan_id={{pelangganId}}"
+method: GET
+queryParams:
+  status: berjalan
+  kendaraan_id: "{{kendaraanId}}"
+  pelanggan_id: "{{pelangganId}}"
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"Status 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      const json = pm.response.json();\r
+
+      \r
+
+      pm.test(\"Filter mengembalikan transaksi berjalan\", function () {\r
+
+      \    pm.expect(json.data.length).to.be.above(0);\r
+
+      \r
+
+      \    json.data.forEach(function (t) {\r
+
+      \        pm.expect(t.status).to.eql(\"berjalan\");\r
+
+      \    });\r
+
+      });"
+    language: text/javascript
+order: 4160803171953145

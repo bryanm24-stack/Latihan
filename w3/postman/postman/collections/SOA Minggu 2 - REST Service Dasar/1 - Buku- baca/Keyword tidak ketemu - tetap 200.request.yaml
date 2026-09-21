@@ -1,0 +1,16 @@
+$kind: http-request
+name: Keyword tidak ketemu -> tetap 200
+description: "PENTING: daftar kosong BUKAN error. 200 dengan array kosong, bukan 404."
+url: "{{baseUrl}}/buku?keyword=zzzz"
+method: GET
+queryParams:
+  keyword: zzzz
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('tetap 200, bukan 404', () => pm.response.to.have.status(200));
+      pm.test('data kosong', () => {
+        pm.expect(pm.response.json().data).to.be.an('array').that.is.empty;
+      });
+    language: text/javascript
+order: 3000

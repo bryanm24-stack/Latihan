@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{baseUrl}}/buku/1"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200', () => pm.response.to.have.status(200));
+      pm.test('lengkap dengan karakter', () => {
+        pm.expect(pm.response.json()).to.have.property('karakter');
+      });
+    language: text/javascript
+order: 6000

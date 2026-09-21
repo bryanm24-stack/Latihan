@@ -1,0 +1,15 @@
+$kind: http-request
+name: Buku tidak ada -> 404
+description: |-
+  **GET** `/api/v1/buku/999`
+
+  **Path Param:** `bukuId` = `999` — id yang sengaja tidak ada di data.
+
+  Ekspektasi: `404`. Bandingkan dengan "Keyword tidak ketemu -> tetap 200" di atas: bedanya PATH PARAM menunjuk satu resource spesifik yang tidak ada (404), sedangkan QUERY yang tidak menemukan apa pun tetap daftar kosong yang valid (200).
+url: "{{baseUrl}}/buku/999"
+method: GET
+scripts:
+  - type: afterResponse
+    code: pm.test('404', () => pm.response.to.have.status(404));
+    language: text/javascript
+order: 7000

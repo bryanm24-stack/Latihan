@@ -1,0 +1,14 @@
+$kind: http-request
+description: |-
+  **DELETE** `/api/v1/buku/{{bukuId}}`
+
+  **Path Param:** `bukuId` = *(dari "Tambah buku")*. **Body:** tidak ada.
+
+  Ekspektasi: `200` dengan pesan konfirmasi. (Alternatif yang juga REST-ful: `204 No Content` tanpa body — lihat catatan di `controllers/buku.js`.)
+url: "{{baseUrl}}/buku/{{bukuId}}"
+method: DELETE
+scripts:
+  - type: afterResponse
+    code: pm.test('200', () => pm.response.to.have.status(200));
+    language: text/javascript
+order: 9000

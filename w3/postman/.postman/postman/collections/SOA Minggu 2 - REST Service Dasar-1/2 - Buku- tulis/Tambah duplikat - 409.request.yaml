@@ -1,0 +1,28 @@
+$kind: http-request
+name: Tambah duplikat -> 409
+description: |-
+  **POST** `/api/v1/buku`
+
+  **Body:** SAMA PERSIS dengan "Tambah buku" (judul "Dune" lagi).
+
+  Ekspektasi: `409 Conflict` — BUKAN `400`. Data yang dikirim valid secara format, tapi bentrok dengan buku yang judulnya sudah ada (dibuat oleh request sebelumnya). `400` untuk "data salah bentuk", `409` untuk "data benar tapi bentrok dengan state server".
+url: "{{baseUrl}}/buku"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "judul": "Dune",
+      "penulis": "Frank Herbert",
+      "tahun_terbit": 1965,
+      "harga": 150000,
+      "stok": 5,
+      "kategori": "novel"
+    }
+scripts:
+  - type: afterResponse
+    code: pm.test('409 Conflict', () => pm.response.to.have.status(409));
+    language: text/javascript
+order: 2000

@@ -1,0 +1,14 @@
+$kind: http-request
+description: |-
+  **GET** `/api/v1/buku/1/karakter`
+
+  **Path Param:** `bukuId` = `1`. `karakterId` TIDAK diisi (nested resource, parameter `:karakterId?` opsional — lihat routes/buku.js).
+
+  Ekspektasi: `200`, response berisi SEMUA karakter milik buku 1 dalam bentuk `{ buku_id, judul, total, data: [...] }`.
+url: "{{baseUrl}}/buku/1/karakter"
+method: GET
+scripts:
+  - type: afterResponse
+    code: pm.test('200', () => pm.response.to.have.status(200));
+    language: text/javascript
+order: 8000

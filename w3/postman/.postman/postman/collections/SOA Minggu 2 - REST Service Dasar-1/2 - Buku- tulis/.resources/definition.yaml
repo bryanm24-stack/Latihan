@@ -1,0 +1,20 @@
+$kind: collection
+name: "2 - Buku: tulis"
+description: |-
+  Request di sini **mengubah data** (POST/PUT/PATCH/DELETE) — urutannya SENGAJA dan TIDAK BOLEH diacak. Alurnya: buat satu buku baru ("Tambah buku", id-nya tersimpan ke `{{bukuId}}`) → uji aturan bisnis di atasnya (duplikat, validasi, mass assignment) → ganti seluruhnya (PUT) → ganti sebagian (PATCH) → hapus (DELETE) → buktikan sudah benar-benar hilang (GET → 404).
+
+  Body setiap request ada di tab **Body → raw → JSON**. Kalau di Postman kalian tab Body masih "Text", ganti dulu ke "JSON" sebelum mengirim — ini penyebab `req.body` kosong nomor satu.
+
+  | Request | Method | Path Param | Body wajib diisi |
+  |---|---|---|---|
+  | Tambah buku | POST | — | judul, penulis, tahun_terbit, harga, kategori |
+  | Tambah duplikat -> 409 | POST | — | sama persis dengan "Tambah buku" |
+  | Validasi gagal -> semua error sekaligus | POST | — | sengaja rusak (lihat body) |
+  | Mass assignment ditolak | POST | — | field valid + `isAdmin`, `diskon` (harus dibuang) |
+  | PUT ganti seluruhnya | PUT | `bukuId` | SEMUA field (PUT = ganti total) |
+  | PUT tidak lengkap -> 400 | PUT | `bukuId` | sengaja cuma `judul` |
+  | PATCH sebagian | PATCH | `bukuId` | cuma `harga` |
+  | PATCH body kosong -> 400 | PATCH | `bukuId` | sengaja kosong |
+  | Hapus buku | DELETE | `bukuId` | — |
+  | Cek sudah terhapus -> 404 | GET | `bukuId` | — |
+order: 3000

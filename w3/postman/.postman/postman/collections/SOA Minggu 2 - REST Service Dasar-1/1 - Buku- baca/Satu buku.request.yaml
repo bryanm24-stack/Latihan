@@ -1,0 +1,18 @@
+$kind: http-request
+description: |-
+  **GET** `/api/v1/buku/1`
+
+  **Path Param:** `bukuId` = `1` — MENUNJUK satu resource spesifik.
+
+  Ekspektasi: `200`, dan (beda dengan "Daftar buku") response berupa objek LENGKAP satu buku, termasuk array `karakter`-nya.
+url: "{{baseUrl}}/buku/1"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200', () => pm.response.to.have.status(200));
+      pm.test('lengkap dengan karakter', () => {
+        pm.expect(pm.response.json()).to.have.property('karakter');
+      });
+    language: text/javascript
+order: 6000

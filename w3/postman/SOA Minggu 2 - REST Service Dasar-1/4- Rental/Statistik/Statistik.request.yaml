@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{baseUrl}}/transaksi/statistik"
+method: GET
+order: 1789995296116

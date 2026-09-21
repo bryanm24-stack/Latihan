@@ -1,0 +1,37 @@
+$kind: http-request
+url: "{{baseUrl}}/kendaraan"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"nama\": \"Mobil Plat Duplikat\",\r
+
+    \  \"jenis\": \"mobil\",\r
+
+    \  \"plat_nomor\": \"L 7788 RT\",\r
+
+    \  \"tarif_per_hari\": 150000\r
+
+    }"
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"[R1] Plat duplikat menghasilkan 409\", function () {\r
+
+      \    pm.response.to.have.status(409);\r
+
+      });\r
+
+      \r
+
+      const json = pm.response.json();\r
+
+      \r
+
+      pm.test(\"Response memiliki pesan\", function () {\r
+
+      \    pm.expect(json).to.have.property(\"msg\");\r
+
+      });"
+    language: text/javascript
+order: 4283873445174699

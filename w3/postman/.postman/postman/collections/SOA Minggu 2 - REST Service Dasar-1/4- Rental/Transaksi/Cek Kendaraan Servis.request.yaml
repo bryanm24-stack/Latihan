@@ -1,0 +1,22 @@
+$kind: http-request
+url: "{{baseUrl}}/kendaraan/3"
+method: GET
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"Kendaraan servis tersedia di seed\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      \r
+
+      \    const json = pm.response.json();\r
+
+      \    pm.expect(json.status).to.eql(\"servis\");\r
+
+      });\r
+
+      \r
+
+      pm.collectionVariables.set(\"kendaraanServisId\", 3);"
+    language: text/javascript
+order: 4497537225663448

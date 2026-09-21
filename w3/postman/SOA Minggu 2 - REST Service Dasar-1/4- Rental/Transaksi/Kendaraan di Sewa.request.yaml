@@ -1,0 +1,22 @@
+$kind: http-request
+url: "{{baseUrl}}/kendaraan/{{kendaraanId}}"
+method: GET
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"Status 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"[R5] Kendaraan otomatis menjadi disewa\", function () {\r
+
+      \    const json = pm.response.json();\r
+
+      \    pm.expect(json.status).to.eql(\"disewa\");\r
+
+      });"
+    language: text/javascript
+order: 4424021309994720

@@ -1,0 +1,19 @@
+$kind: http-request
+name: Karakter tidak ada -> 404
+description: |-
+  **GET** `/api/v1/buku/1/karakter/99`
+
+  **Path Param:** `bukuId` = `1` (ADA), `karakterId` = `99` (TIDAK ADA).
+
+  Ekspektasi: `404`, dengan pesan yang menyebut "karakter" — BEDA dengan pesan "buku tidak ditemukan". Ada dua kemungkinan 404 di endpoint nested seperti ini (buku-nya tidak ada, atau buku-nya ada tapi karakternya tidak), dan consumer API perlu bisa membedakan keduanya dari pesannya.
+url: "{{baseUrl}}/buku/1/karakter/99"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('404', () => pm.response.to.have.status(404));
+      pm.test('pesan spesifik karakter', () => {
+        pm.expect(pm.response.json().msg.toLowerCase()).to.include('karakter');
+      });
+    language: text/javascript
+order: 10000

@@ -1,0 +1,26 @@
+$kind: http-request
+name: PUT tidak lengkap -> 400
+description: |-
+  **PUT** `/api/v1/buku/{{bukuId}}`
+
+  **Body — sengaja cuma satu field:**
+  ```json
+  { "judul": "Cuma Judul" }
+  ```
+
+  Ekspektasi: `400`. PUT menuntut representasi LENGKAP resource; mengirim sebagian saja dianggap data tidak lengkap, bukan "update sebagian" (itu tugas PATCH).
+url: "{{baseUrl}}/buku/{{bukuId}}"
+method: PUT
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "judul": "Cuma Judul"
+    }
+scripts:
+  - type: afterResponse
+    code: pm.test('400', () => pm.response.to.have.status(400));
+    language: text/javascript
+order: 6000

@@ -1,0 +1,6 @@
+$kind: collection
+description: |-
+  **Bukan bagian dari resource `buku`.** Ini "laboratorium" endpoint `/api/v1/contoh` untuk merasakan bedanya `req.query`, `req.params`, dan `req.body` sebelum masuk ke controller buku yang memakai ketiganya sekaligus. Kalau konsep tiga sumber data ini belum jelas, buku-buku di folder lain akan terasa membingungkan.
+
+  Lihat `src/controllers/contoh.js` sambil menjalankan tiap request di folder ini.
+order: 1000

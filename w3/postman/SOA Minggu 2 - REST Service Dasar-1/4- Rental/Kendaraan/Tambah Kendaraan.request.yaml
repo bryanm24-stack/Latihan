@@ -1,0 +1,60 @@
+$kind: http-request
+url: "{{baseUrl}}/kendaraan"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"nama\": \"Toyota Innova Rental Test\",\r
+
+    \  \"jenis\": \"mobil\",\r
+
+    \  \"plat_nomor\": \"L 7788 RT\",\r
+
+    \  \"tarif_per_hari\": 100000,\r
+
+    \  \"status\": \"disewa\"\r
+
+    }"
+scripts:
+  - type: afterResponse
+    code: ""
+    language: text/javascript
+  - type: beforeRequest
+    code: "pm.test(\"Status 201\", function () {\r
+
+      \    pm.response.to.have.status(201);\r
+
+      });\r
+
+      \r
+
+      const json = pm.response.json();\r
+
+      \r
+
+      pm.test(\"Kendaraan baru otomatis tersedia\", function () {\r
+
+      \    pm.expect(json.status).to.eql(\"tersedia\");\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Data kendaraan benar\", function () {\r
+
+      \    pm.expect(json.nama).to.eql(\"Toyota Innova Rental Test\");\r
+
+      \    pm.expect(json.jenis).to.eql(\"mobil\");\r
+
+      \    pm.expect(json.plat_nomor).to.eql(\"L 7788 RT\");\r
+
+      \    pm.expect(json.tarif_per_hari).to.eql(100000);\r
+
+      });\r
+
+      \r
+
+      pm.collectionVariables.set(\"kendaraanId\", json.id);"
+    language: text/javascript
+order: 1789992350468

@@ -1,0 +1,14 @@
+$kind: collection
+name: "1 - Buku: baca"
+description: |-
+  Semua request di sini **GET** — tidak mengubah data apa pun, aman dijalankan berkali-kali dan dalam urutan apa saja. Fokus folder ini: kombinasi `?query` untuk filter/urut/paging, dan `:param` di path untuk menunjuk satu resource atau resource bersarang (`karakter`).
+
+  | Request | Query | Path Param |
+  |---|---|---|
+  | Daftar buku | — | — |
+  | Cari keyword | `keyword` | — |
+  | Sort + paging | `sort`, `order`, `limit` | — |
+  | Satu buku | — | `bukuId` |
+  | Karakter buku | — | `bukuId` |
+  | Satu karakter | — | `bukuId`, `karakterId` |
+order: 2000

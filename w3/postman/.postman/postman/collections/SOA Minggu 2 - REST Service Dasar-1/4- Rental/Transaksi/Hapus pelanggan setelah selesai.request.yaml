@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{baseUrl}}/pelanggan/{{pelangganId}}"
+method: DELETE
+order: 4503595265713802

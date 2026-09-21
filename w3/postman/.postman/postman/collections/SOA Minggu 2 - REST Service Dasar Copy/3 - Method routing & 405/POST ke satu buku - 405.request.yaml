@@ -1,0 +1,13 @@
+$kind: http-request
+name: POST ke satu buku -> 405
+description: |-
+  **POST** `/api/v1/buku/1` *(path param `bukuId` = `1`, tapi POST tidak didaftarkan di alamat SATU resource — POST hanya untuk alamat koleksi)*
+
+  Ekspektasi: `405`. Untuk membuat resource baru, kirim POST ke `/api/v1/buku` (tanpa id) — id ditentukan server, bukan client.
+url: "{{baseUrl}}/buku/1"
+method: POST
+scripts:
+  - type: afterResponse
+    code: pm.test('405', () => pm.response.to.have.status(405));
+    language: text/javascript
+order: 2000

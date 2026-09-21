@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{baseUrl}}/transaksi"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"kendaraan_id\": {{kendaraanServisId}},\r
+
+    \  \"pelanggan_id\": {{pelangganId}},\r
+
+    \  \"tanggal_sewa\": \"2026-09-21\",\r
+
+    \  \"tanggal_rencana_kembali\": \"2026-09-24\"\r
+
+    }"
+order: 4497720182232409

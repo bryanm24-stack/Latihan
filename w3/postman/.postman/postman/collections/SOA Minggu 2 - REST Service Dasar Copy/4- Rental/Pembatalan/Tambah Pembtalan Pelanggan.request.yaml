@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{baseUrl}}/pelanggan"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"nama\": \"Pelanggan Cancel Test\",\r
+
+    \  \"no_ktp\": \"3578010101019999\",\r
+
+    \  \"no_hp\": \"081999999999\"\r
+
+    }"
+order: 1523635576782548

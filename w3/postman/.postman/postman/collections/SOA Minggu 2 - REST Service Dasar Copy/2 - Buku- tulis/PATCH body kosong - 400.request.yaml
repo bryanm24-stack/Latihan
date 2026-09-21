@@ -1,0 +1,15 @@
+$kind: http-request
+name: PATCH body kosong -> 400
+description: |-
+  **PATCH** `/api/v1/buku/{{bukuId}}`
+
+  **Body:** sengaja KOSONG.
+
+  Ekspektasi: `400`. PATCH dengan body kosong berarti "ubah tidak ada apa-apa" — itu bukan request yang masuk akal, jadi ditolak sebelum menyentuh data.
+url: "{{baseUrl}}/buku/{{bukuId}}"
+method: PATCH
+scripts:
+  - type: afterResponse
+    code: pm.test('400', () => pm.response.to.have.status(400));
+    language: text/javascript
+order: 8000

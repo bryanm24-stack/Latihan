@@ -1,0 +1,41 @@
+$kind: http-request
+url: "{{baseUrl}}/pelanggan"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"nama\": \"Pelanggan Rental Test\",\r
+
+    \  \"no_ktp\": \"3578010101018888\",\r
+
+    \  \"no_hp\": \"081234567899\"\r
+
+    }"
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"Status 201\", function () {\r
+
+      \    pm.response.to.have.status(201);\r
+
+      });\r
+
+      \r
+
+      const json = pm.response.json();\r
+
+      \r
+
+      pm.test(\"Pelanggan berhasil dibuat\", function () {\r
+
+      \    pm.expect(json.nama).to.eql(\"Pelanggan Rental Test\");\r
+
+      \    pm.expect(json.no_ktp).to.eql(\"3578010101018888\");\r
+
+      });\r
+
+      \r
+
+      pm.collectionVariables.set(\"pelangganId\", json.id);"
+    language: text/javascript
+order: 1789992385849

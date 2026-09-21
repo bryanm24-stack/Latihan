@@ -1,0 +1,47 @@
+$kind: http-request
+url: "{{baseUrl}}/transaksi/{{transaksiId}}/pengembalian"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"tanggal_kembali\": \"2026-09-25\"\r
+
+    }"
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"Status 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      const json = pm.response.json();\r
+
+      \r
+
+      pm.test(\"[R6] Transaksi selesai\", function () {\r
+
+      \    pm.expect(json.status).to.eql(\"selesai\");\r
+
+      });\r
+
+      \r
+
+      pm.test(\"[R6] Denda dihitung server\", function () {\r
+
+      \    pm.expect(Number(json.denda)).to.eql(100000);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"[R6] Total biaya dihitung server\", function () {\r
+
+      \    pm.expect(Number(json.total_biaya)).to.eql(600000);\r
+
+      });"
+    language: text/javascript
+order: 4501983099636334

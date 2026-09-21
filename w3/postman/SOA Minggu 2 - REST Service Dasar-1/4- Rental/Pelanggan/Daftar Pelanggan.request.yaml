@@ -1,0 +1,22 @@
+$kind: http-request
+url: "{{baseUrl}}/pelanggan"
+method: GET
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"Status 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Data berupa array\", function () {\r
+
+      \    const json = pm.response.json();\r
+
+      \    pm.expect(json.data).to.be.an(\"array\");\r
+
+      });"
+    language: text/javascript
+order: 540676902949945

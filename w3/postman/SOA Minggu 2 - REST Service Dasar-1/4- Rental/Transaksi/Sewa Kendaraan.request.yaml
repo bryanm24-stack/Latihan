@@ -1,0 +1,25 @@
+$kind: http-request
+url: "{{baseUrl}}/transaksi"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"kendaraan_id\": 1,\r
+
+    \  \"pelanggan_id\": 2,\r
+
+    \  \"tanggal_sewa\": \"2026-09-21\",\r
+
+    \  \"tanggal_rencana_kembali\": \"2026-09-24\"\r
+
+    }"
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"[R3] Kendaraan disewa menghasilkan 409\", function () {\r
+
+      \    pm.response.to.have.status(409);\r
+
+      });"
+    language: text/javascript
+order: 4489724725792783

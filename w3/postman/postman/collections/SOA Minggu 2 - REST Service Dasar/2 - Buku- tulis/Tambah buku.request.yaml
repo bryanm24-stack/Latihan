@@ -1,0 +1,26 @@
+$kind: http-request
+url: "{{baseUrl}}/buku"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "judul": "Dune",
+      "penulis": "Frank Herbert",
+      "tahun_terbit": 1965,
+      "harga": 150000,
+      "stok": 5,
+      "kategori": "novel"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201 Created', () => pm.response.to.have.status(201));
+      pm.test('ada header Location', () => {
+        pm.expect(pm.response.headers.get('Location')).to.match(/^\/api\/v1\/buku\/\d+$/);
+      });
+      pm.collectionVariables.set('bukuId', pm.response.json().id);
+    language: text/javascript
+order: 1000
