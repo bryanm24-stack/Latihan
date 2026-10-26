@@ -96,7 +96,7 @@ npm test
 
 Test memakai database terpisah `soa_bookdata_w8_test`, bukan DB_NAME operasional. Boleh ganti dengan `TEST_DB_NAME` yang wajib berakhiran `_test`. `test:prepare` membuat dan me-reset seed pada database uji tersebut, jadi jangan gunakan nama database penting. Koneksi host/user/password mengikuti `.env`. Pengguna MySQL memerlukan hak CREATE DATABASE untuk persiapan ini.
 
-Test menggunakan `node:test`, HTTP pada port acak, Sequelize dan database nyata, tanpa mock kuota. Hasil verifikasi yang disertakan berada di `HASIL_UJI.txt`. Pada lingkungan pembuat, database yang diuji adalah MariaDB 10.11 melalui dialect mysql. MySQL 8 belum diuji langsung di lingkungan pembuat.
+Test menggunakan `node:test`, HTTP pada port acak, Sequelize dan database nyata, tanpa mock kuota. Hasil verifikasi yang disertakan berada di `HASIL_UJI.md`. Pada lingkungan pembuat, database yang diuji adalah MariaDB 10.11 melalui dialect mysql. MySQL 8 belum diuji langsung di lingkungan pembuat.
 
 ## Langkah 5 — Urutan presentasi anggota
 

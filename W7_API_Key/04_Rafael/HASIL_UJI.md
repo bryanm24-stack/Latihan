@@ -1,4 +1,4 @@
-HASIL VERIFIKASI BOOKDATA API
+# Hasil verifikasi BookData API
 Tanggal: 26 Oktober 2026 (WIB)
 Runtime: Node.js v24.22.1, MariaDB 10.11.14, mysql2 + Sequelize dialect mysql.
 
@@ -12,8 +12,7 @@ Runtime: Node.js v24.22.1, MariaDB 10.11.14, mysql2 + Sequelize dialect mysql.
 5. Instalasi database baru: schema + seed berhasil dijalankan.
 6. Kode JavaScript: pemeriksaan sintaks berhasil.
 
-KASUS INTEGRASI:
-1. register tidak membocorkan hash password / api_key
+## Kasus integrasi
 2. database menyimpan SHA-256, bukan raw key
 3. generate memerlukan JWT
 4. generate kedua menghasilkan 409
@@ -35,17 +34,21 @@ KASUS INTEGRASI:
 20. UUID lama yang sudah di-hash masih dapat dipakai
 21. endpoint buku W7 tetap tersedia
 
-Cara mengulang pengujian dari Proyek_Lengkap:
-  npm ci
-  npm run setup:env
-  [sesuaikan koneksi MySQL pada .env]
-  npm run test:prepare
-  npm test
+## Mengulang pengujian
 
-test:prepare melakukan reset seed khusus database *_test, bukan database operasional.
+Jalankan dari `Proyek_Lengkap`:
+```bash
+npm ci
+npm run setup:env
+# Sesuaikan koneksi MySQL pada .env
+npm run test:prepare
+npm test
+```
+
+test:prepare melakukan reset seed khusus database `*_test`, bukan database operasional.
 Untuk Postman, impor koleksi W8 dan environment bookdata-local lalu jalankan Runner berurutan.
 
-Batas verifikasi:
+## Batas verifikasi
 - Runtime database yang diuji langsung adalah MariaDB 10.11, bukan server MySQL 8 langsung.
 - Endpoint pihak ketiga W7 dan pengiriman webhook tidak termasuk pengujian ini.
 - Premium merupakan simulasi aktivasi manual admin, belum terintegrasi pembayaran/masa aktif.
