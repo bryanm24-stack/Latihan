@@ -30,11 +30,15 @@ const Buku = require("./Buku");
 const Karakter = require("./Karakter");
 const Pengguna = require("./Pengguna");
 const ApiLog = require("./ApiLog");
+const Payment = require("./Payment");
+const Subscription = require("./Subscription");
 
 db.Buku = Buku(sequelize, sequelize.Sequelize);
 db.Karakter = Karakter(sequelize, sequelize.Sequelize);
 db.Pengguna = Pengguna(sequelize, sequelize.Sequelize);
 db.ApiLog = ApiLog(sequelize, sequelize.Sequelize);
+db.Payment = Payment(sequelize, sequelize.Sequelize);
+db.Subscription = Subscription(sequelize, sequelize.Sequelize);
 
 // Relasi dinyatakan SETELAH semua model ada. Urutan di objek `db`
 // tidak penting; yang penting semua sudah terdaftar di baris atas.

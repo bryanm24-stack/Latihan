@@ -1,96 +1,47 @@
-# Kenneth — Tahap 1: Database dan model
+# Kenneth — database dan model subscription
 
-**Target:** menyediakan penyimpanan hash key dan log pemakaian yang dapat dipakai Bryan dan Dana. Kerjakan fondasi ini terlebih dahulu. Semua file di `kode/` sudah berisi implementasi final.
+Bagian ini menyiapkan data yang dipakai checkout, konfirmasi, masa aktif dan kuota. Jalankan aplikasi dari Proyek_Lengkap; folder kode di sini adalah salinan file bagian Kenneth.
 
-## File yang menjadi tanggung jawab
+## File yang dikerjakan
 
-| File | Status terhadap W7 |
+| File | Fungsi |
 |---|---|
-| `sql/schema.sql` | Diubah |
-| `sql/seed.sql` | Diubah |
-| `sql/api_key_upgrade.sql` | Baru |
-| `src/models/ApiLog.js` | Baru |
-| `src/models/Pengguna.js` | Diubah |
-| `src/models/index.js` | Diubah |
-| `scripts/migrate.js` | Diubah |
-| `scripts/upgrade-api-key.js` | Baru |
+| `sql/schema.sql` | Tujuh tabel versi lengkap |
+| `sql/subscription_upgrade.sql` | Membuat payments dan subscriptions tanpa seed |
+| `sql/install.sql` | CREATE DATABASE, schema dan seed untuk SQLyog |
+| `sql/seed.sql` | Data buku dan akun admin demo, mereset data |
+| `src/models/Payment.js` | Model invoice dan snapshot harga/durasi |
+| `src/models/Subscription.js` | Model satu subscription terkini per akun |
+| `src/models/ApiLog.js` | Log dan reservasi kuota |
+| `src/models/Pengguna.js` | Relasi pengguna, key hash dan cache paket |
+| `src/models/index.js` | Mendaftarkan semua model sebelum associate |
+| `scripts/upgrade-api-key.js` | Upgrade W7, hash UUID dan transisi Premium lama |
 
-## Langkah 1 — Tabel dan index
+## Data yang harus dibedakan
 
-Pada `sql/schema.sql`, kolom `pengguna.api_key` yang sudah ada tetap `VARCHAR(64)` dan sekarang menyimpan hash SHA-256. Tambahkan unique index `uq_pengguna_api_key` untuk mencegah satu hash dimiliki dua akun. MySQL tetap memperbolehkan banyak nilai NULL, sehingga akun tanpa key tidak saling berbenturan.
+`payments` adalah riwayat transaksi. Satu pengguna bisa mempunyai banyak invoice. amount dan billing_days adalah snapshot harga/durasi pada checkout. status berisi pending, paid, cancelled atau expired. checkout_key unik per pengguna untuk mencegah invoice ganda. period_start/period_end merekam periode yang dibeli.
 
-Tabel baru `api_log` memakai foreign key ke `pengguna.id`. Index gabungan `(pengguna_id, createdAt)` membantu pencarian penggunaan satu akun pada rentang waktu tertentu. Engine InnoDB diperlukan agar transaksi dan row lock milik Dana bekerja.
+`subscriptions` adalah keadaan langganan terkini. Satu pengguna memiliki maksimal satu baris. Pembayaran kedua memperbarui ends_at pada baris tersebut, sementara riwayat pembeliannya tetap berada pada payments.
 
-```sql
--- KENNETH: log sekaligus reservasi kuota untuk request yang diterima.
-CREATE TABLE IF NOT EXISTS api_log (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  pengguna_id INT UNSIGNED NOT NULL,
-  endpoint VARCHAR(255) NOT NULL,
-  http_method VARCHAR(10) NOT NULL,
-  status_code SMALLINT UNSIGNED NULL,
-  createdAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  CONSTRAINT fk_api_log_pengguna FOREIGN KEY (pengguna_id)
-    REFERENCES pengguna(id) ON DELETE CASCADE,
-  INDEX idx_api_log_pengguna_waktu (pengguna_id, createdAt)
-) ENGINE=InnoDB;
-```
+`pengguna.api_level` adalah cache, bukan bukti bahwa pelanggan sudah membayar. Service membaca subscription aktif dan waktu database sebelum menerapkan hak akses.
 
-## Langkah 2 — Model Sequelize
+## Instalasi database
 
-`src/models/ApiLog.js` memetakan semua kolom di tabel log. `status_code` boleh NULL karena slot kuota dicatat sebelum respons selesai. Dana memperbarui status pada event respons. Relasi `ApiLog.belongsTo(Pengguna)` dan `Pengguna.hasMany(ApiLog)` memakai nama foreign key yang sama, yaitu `pengguna_id`.
+Dari Proyek_Lengkap: `npm ci`, `npm run setup:env`, sesuaikan .env. Untuk instalasi baru gunakan `npm run db:migrate`, atau impor sql/install.sql di SQLyog. Nama defaultnya soa_bookdata_w8. Seed mengosongkan data lama.
 
-Daftarkan `ApiLog` pada `src/models/index.js` sebelum loop `associate()`. Pada `Pengguna.js`, validasi `api_level` menerima Basic/Premium dan defaultScope menyembunyikan `api_key` beserta hash password. Scope menyaring SELECT, sehingga controller register tetap mengambil ulang data sebelum mengirim respons.
+Untuk database W7/W8 berisi data: backup, arahkan DB_NAME ke database lama, lalu `npm run db:upgrade`. Upgrade tidak menjalankan seed. UUID lama di-hash sekali dan tetap bisa dipakai sebagai key jika nilai aslinya disimpan pelanggan. Premium manual lama mendapat transisi 30 hari sekali dengan source legacy_migration; tidak dicatat sebagai pembayaran.
 
-## Langkah 3 — Seed dan migrasi
-
-`sql/seed.sql` mengosongkan `api_log` sebelum `pengguna` pada reset database. Admin demo tidak memperoleh UUID mentah lagi. Pengelolaan key dilakukan lewat endpoint Bryan.
-
-- Database baru: `npm run db:migrate` membuat tabel dan mengisi seed, sekaligus menghapus isi tabel yang tercantum pada seed jika sudah ada.
-- Database W7 lama: `npm run db:upgrade` menjalankan `scripts/upgrade-api-key.js`. Script membaca `sql/api_key_upgrade.sql`, menambahkan index jika belum ada, dan meng-hash UUID lama satu kali. Key UUID asli yang sudah diketahui pemilik tetap dapat dipakai karena middleware mendukung format lama tersebut.
-- Upgrade hanya menyasar format UUID dari starter W7. Simpan backup sebelum DDL karena MySQL tidak membungkus seluruh perubahan skema dalam transaksi tunggal.
-- `scripts/migrate.js` juga memvalidasi nama database sebelum memasukkannya ke SQL identifier.
-
-## Langkah 4 — Pemeriksaan di SQLyog
+## Pemeriksaan SQLyog
 
 ```sql
 SHOW TABLES;
-SHOW INDEX FROM pengguna;
-SHOW INDEX FROM api_log;
-SHOW CREATE TABLE api_log;
-SELECT id, pengguna_nama, api_level, LENGTH(api_key) AS hash_length
-FROM pengguna;
-SELECT pengguna_id, endpoint, http_method, status_code, createdAt
-FROM api_log ORDER BY id DESC LIMIT 20;
+DESCRIBE payments;
+DESCRIBE subscriptions;
+SHOW INDEX FROM payments;
+SELECT invoice_no, pengguna_id, amount, status, period_start, period_end FROM payments;
+SELECT pengguna_id, plan, status, starts_at, ends_at, source FROM subscriptions;
 ```
 
-Sebelum generate, `hash_length` adalah NULL. Setelah generate, nilainya 64. Jangan menampilkan raw key dalam screenshot presentasi. Uji alur API penuh mengikuti panduan Rafael setelah bagian Bryan/Dana terpasang.
+Setelah checkout harus ada pending dan belum ada Premium aktif. Setelah konfirmasi harus ada paid serta subscription aktif. Konfirmasi ulang tidak menambah ends_at. Untuk demo expiry gunakan sql/demo_expire_subscription.sql dengan ID pelanggan yang benar di database praktikum.
 
-## Hasil yang diserahkan
-
-Skema, seed, model, dan migrasi lengkap tersedia di `kode/`. `PERUBAHAN.diff` membandingkan file tersebut terhadap starter W7. Bryan membutuhkan `Pengguna`, Dana membutuhkan `ApiLog` dan `sequelize`. Hindari membuat model bernama ApiUsage karena implementasi final konsisten memakai **ApiLog**.
-
-
-## Cara memakai folder anggota
-
-Folder `kode/` berisi **isi file lengkap**, bukan potongan atau placeholder. Path di bawah `kode/` mengikuti path proyek W7. Folder anggota merupakan bahan pembagian kerja dan review, bukan aplikasi mandiri. Semua dependensi dan hasil integrasi tersedia dalam `../Proyek_Lengkap/`. Salinan file di folder anggota sama persis dengan file final proyek gabungan.
-
-Untuk menjalankan hasil akhir, buka terminal di `Proyek_Lengkap`, bukan di `kode/` anggota:
-
-```bash
-npm ci
-npm run setup:env
-```
-
-Edit `.env` sesuai MySQL lokal. Script membuat dua JWT secret berbeda dan memakai `DB_NAME=soa_bookdata_w8` agar tidak memakai database latihan lama secara tidak sengaja. Default port MySQL pada `.env.example` adalah 3306 dan port HTTP 3001. Gunakan Node.js 24 dan MySQL 8 / MariaDB dengan tabel InnoDB.
-
-Jika database baru dan data boleh di-reset:
-
-```bash
-npm run db:migrate
-npm start
-```
-
-**`db:migrate` menjalankan seed dengan TRUNCATE.** Untuk database W7 berisi data, backup terlebih dahulu, arahkan `.env` ke database tersebut, lalu gunakan `npm run db:upgrade` sebagai pengganti `db:migrate`. Upgrade menambah tabel/index dan mengubah UUID key lama menjadi SHA-256 tanpa menjalankan seed.
-
-JWT lama W7 tetap berlaku 30 detik. Jika endpoint pengelolaan key mengembalikan 403 karena token kedaluwarsa, login ulang atau panggil refresh. Kredensial admin seed: `admin` / `Admin123!` untuk demo lokal.
+Hasil uji: upgrade skema W7 asli dua kali menjaga lima buku, tidak melakukan double hash, dan tidak memperpanjang grant transisi. sql/install.sql berhasil membuat database dan tujuh tabel.

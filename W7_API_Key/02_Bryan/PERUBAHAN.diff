@@ -1,34 +1,22 @@
---- /dev/null
-+++ b/src/config/apiPlans.js
+--- W7/src/config/apiPlans.js
++++ BookData_2/src/config/apiPlans.js
 @@ -0,0 +1,8 @@
-+// BRYAN: satu sumber aturan paket. Harga merupakan simulasi praktikum.
++// BRYAN: harga server, masa aktif 30 hari, dan batas paket.
 +const API_PLANS = Object.freeze({
-+  basic: Object.freeze({ name: "Basic", priceMonthly: 0, dailyLimit: 100,
-+    minuteLimit: 10, features: ["ringkasan"] }),
-+  premium: Object.freeze({ name: "Premium", priceMonthly: 99000, dailyLimit: 10000,
-+    minuteLimit: 100, features: ["ringkasan", "analitik"] }),
++  basic: Object.freeze({ name: "Basic", price: 0, currency: "IDR", billingDays: null, dailyLimit: 100,
++    minuteLimit: 10, features: Object.freeze(["ringkasan"]) }),
++  premium: Object.freeze({ name: "Premium", price: 99000, currency: "IDR", billingDays: 30, dailyLimit: 10000,
++    minuteLimit: 100, features: Object.freeze(["ringkasan", "analitik"]) }),
 +});
 +module.exports = { API_PLANS };
---- /dev/null
-+++ b/src/utils/apiKey.js
-@@ -0,0 +1,10 @@
-+const crypto = require("node:crypto");
-+// Key baru memiliki 256 bit acak. Database hanya menyimpan SHA-256.
-+const createApiKey = () =>
-+  `bd_live_${crypto.randomBytes(32).toString("hex")}`;
-+const hashApiKey = (rawKey) =>
-+  crypto.createHash("sha256").update(rawKey).digest("hex");
-+// UUID lama W7 tetap bisa dipakai setelah db:upgrade meng-hash nilainya.
-+const isApiKey = (value) => typeof value === "string" &&
-+  /^(bd_live_[a-f0-9]{64}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.test(value);
-+module.exports = { createApiKey, hashApiKey, isApiKey };
---- /dev/null
-+++ b/src/controllers/apiKey.js
-@@ -0,0 +1,48 @@
+--- W7/src/controllers/apiKey.js
++++ BookData_2/src/controllers/apiKey.js
+@@ -0,0 +1,41 @@
 +// BRYAN: JWT mengelola key, API key mengakses layanan partner.
 +const { Pengguna, sequelize } = require("../models");
-+const { API_PLANS } = require("../config/apiPlans");
 +const { createApiKey, hashApiKey } = require("../utils/apiKey");
++const { subscriptionMe, effectiveSubscription } = require("../services/billing");
++const { databaseNow } = require("../services/clock");
 +const { snapshot } = require("../services/apiUsage");
 +const issue = (replace) => async (req, res) => {
 +  const result = await sequelize.transaction(async (transaction) => {
@@ -37,6 +25,7 @@
 +    if (!user) return { status: 404, body: { code: "USER_NOT_FOUND" } };
 +    if (!replace && user.api_key) return { status: 409, body: {
 +      code: "KEY_ALREADY_EXISTS", msg: "Gunakan regenerate untuk mengganti key." } };
++    await effectiveSubscription(user, await databaseNow(transaction), transaction);
 +    const rawKey = createApiKey();
 +    await user.update({ api_key: hashApiKey(rawKey) }, { transaction });
 +    return { status: replace ? 200 : 201, body: { api_key: rawKey, api_level: user.api_level,
@@ -51,30 +40,30 @@
 +  const user = await Pengguna.unscoped().findByPk(req.pengguna.id,
 +    { attributes: ["id", "api_level", "api_key"] });
 +  if (!user) return res.status(404).json({ code: "USER_NOT_FOUND" });
++  const state = await subscriptionMe(user.id);
++  if (!state) return res.status(404).json({ code: "USER_NOT_FOUND" });
 +  const usage = await snapshot(user.id);
-+  const plan = API_PLANS[user.api_level];
++  const plan = state.plan;
 +  return res.set("Cache-Control", "no-store").json({ pengguna_id: user.id,
-+    has_api_key: Boolean(user.api_key), api_level: user.api_level, plan,
++    has_api_key: Boolean(user.api_key), api_level: state.api_level, plan, subscription: state.subscription,
 +    usage: { ...usage, timezone: "UTC", dailyRemaining: Math.max(0, plan.dailyLimit - usage.daily),
 +      minuteRemaining: Math.max(0, plan.minuteLimit - usage.minute) } });
 +};
-+const setLevel = async (req, res) => {
-+  const id = Number(req.params.id);
-+  const body = req.body || {};
-+  if (!Number.isSafeInteger(id) || id <= 0 || typeof body.api_level !== "string" ||
-+      !Object.hasOwn(API_PLANS, body.api_level) ||
-+      Object.keys(body).some((k) => k !== "api_level")) {
-+    return res.status(400).json({ code: "INVALID_PLAN_INPUT", msg: "Kirim api_level basic atau premium." });
-+  }
-+  const user = await Pengguna.findByPk(id);
-+  if (!user) return res.status(404).json({ code: "USER_NOT_FOUND" });
-+  await user.update({ api_level: body.api_level });
-+  return res.json({ pengguna_id: user.id, api_level: user.api_level,
-+    msg: "Paket diperbarui oleh admin (simulasi pembayaran, tanpa tagihan otomatis)." });
-+};
++// Jalur lama dinonaktifkan agar pembelian tidak dapat dilewati.
++const setLevel = (req, res) => res.status(410).json({ code: "DIRECT_UPGRADE_DISABLED",
++  msg: "Gunakan checkout dan konfirmasi pembayaran simulasi. Paket tidak lagi diubah langsung." });
 +module.exports = { generate, regenerate, me, setLevel };
---- a/src/controllers/auth.js
-+++ b/src/controllers/auth.js
+--- W7/src/controllers/auth.js
++++ BookData_2/src/controllers/auth.js
+@@ -13,7 +13,7 @@
+  * Konsep yang membuat auth ini "aman alasan-alasannya":
+  *   - hash bukan enkripsi (bcrypt.hash / bcrypt.compare)
+  *   - JWT: ditandatangani, BUKAN disandikan (bisa dibaca siapa pun)
+- *   - access token pendek (30 detik, untuk melihat kedaluwarsa hidup)
++ *   - access token 15 menit secara default (ACCESS_TOKEN_TTL dapat diatur)
+  *   - refresh token panjang (1 hari), di httpOnly cookie
+  */
+ const crypto = require("crypto");
 @@ -95,9 +95,9 @@
        // berbahaya. Silakan coba kirim roles di body -- tidak akan
        // pernah tersimpan.)
@@ -88,8 +77,96 @@
      });
  
      // model defaultScope sudah menyaring password -- tapi ini bentuk
---- /dev/null
-+++ b/src/routes/apiKey.js
+@@ -171,13 +171,13 @@
+   };
+ 
+   // DUA token, dua masa hidup:
+-  //   accessToken  30 detik -- cukup untuk beberapa request. Kalau
++  //   accessToken  mengikuti ACCESS_TOKEN_TTL, default 15 menit. Kalau
+   //                bocor, bocornya sebentar.
+   //   refreshToken 1 hari  -- memperpanjang akses TANPA login ulang.
+   //                Karena lebih berharga, tempatnya httpOnly cookie:
+   //                TIDAK bisa dibaca JavaScript browser (anti XSS).
+   const accessToken = jwt.sign(payload, process.env.ACCESS_TOKEN_SECRET, {
+-    expiresIn: "30s",
++    expiresIn: process.env.ACCESS_TOKEN_TTL || "15m",
+   });
+   const refreshToken = jwt.sign(payload, process.env.REFRESH_TOKEN_SECRET, {
+     expiresIn: "1d",
+@@ -218,7 +218,7 @@
+     const accessToken = jwt.sign(
+       { pengguna: decoded.pengguna },
+       process.env.ACCESS_TOKEN_SECRET,
+-      { expiresIn: "30s" }
++      { expiresIn: process.env.ACCESS_TOKEN_TTL || "15m" }
+     );
+ 
+     return res.status(200).json({ accessToken });
+--- W7/src/controllers/billing.js
++++ BookData_2/src/controllers/billing.js
+@@ -0,0 +1,60 @@
++const { API_PLANS } = require('../config/apiPlans');
++const billing = require('../services/billing');
++const allowedObject = (body, keys) => body && typeof body === 'object' && !Array.isArray(body) &&
++  Object.keys(body).every(key => keys.includes(key));
++const invalid = (res, code, msg) => res.status(400).json({ code, msg });
++const send = (res, result) => res.set('Cache-Control','no-store').status(result.status).json(result.body);
++const parseId = value => typeof value === 'string' && /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
++const isAdmin = req => String(req.pengguna.roles || '').split(',').includes('admin');
++
++const plans = (req, res) => res.json({
++  currency: 'IDR', payment_mode: 'simulation', auto_renew: false,
++  data: Object.entries(API_PLANS).map(([id, plan]) => ({ id, name: plan.name, price: plan.price,
++    currency: plan.currency, duration_days: plan.billingDays, daily_limit: plan.dailyLimit,
++    minute_limit: plan.minuteLimit, features: plan.features, requires_checkout: id !== 'basic' })),
++  msg: 'Basic gratis tanpa batas masa aktif. Premium Rp99.000 per 30 hari. Pembayaran dikonfirmasi admin sebagai simulasi.',
++});
++const checkout = async (req, res) => {
++  if (!allowedObject(req.body, ['plan']) || req.body.plan !== 'premium') {
++    return invalid(res,'INVALID_CHECKOUT','Kirim hanya {"plan":"premium"}. Basic gratis tanpa checkout. Harga ditentukan server.');
++  }
++  const key = req.get('Idempotency-Key');
++  if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{8,100}$/.test(key)) {
++    return invalid(res,'INVALID_IDEMPOTENCY_KEY','Header Idempotency-Key wajib, 8–100 karakter huruf/angka/underscore/strip. Gunakan key yang sama untuk mengulang checkout yang sama.');
++  }
++  return send(res, await billing.checkout(req.pengguna.id, req.body.plan, key));
++};
++const me = async (req, res) => {
++  const state = await billing.subscriptionMe(req.pengguna.id);
++  if (!state) return res.status(404).json({ code: 'USER_NOT_FOUND' });
++  return send(res, { status: 200, body: state });
++};
++const payment = async (req, res) => {
++  const id = parseId(req.params.id);
++  if (!id) return invalid(res,'INVALID_PAYMENT_ID','ID pembayaran harus bilangan bulat positif.');
++  const row = await billing.getPayment(id, req.pengguna.id, isAdmin(req));
++  return send(res, row ? { status: 200, body: { payment: row, payment_mode: 'simulation' } } :
++    { status: 404, body: { code: 'PAYMENT_NOT_FOUND' } });
++};
++const list = (admin = false) => async (req, res) => {
++  if (Object.keys(req.query).some(key => !['page','limit'].includes(key))) return invalid(res,'INVALID_PAGING','Gunakan page dan limit saja.');
++  const page = req.query.page === undefined ? 1 : parseId(req.query.page);
++  const limit = req.query.limit === undefined ? 20 : parseId(req.query.limit);
++  if (!page || !limit || limit > 100 || (page - 1) * limit > 1000000) return invalid(res,'INVALID_PAGING','page harus positif dan limit 1–100.');
++  return send(res, { status: 200, body: await billing.listPayments(admin ? null : req.pengguna.id, page, limit, admin) });
++};
++const confirm = async (req, res) => {
++  const id = parseId(req.params.id);
++  if (!id) return invalid(res,'INVALID_PAYMENT_ID','ID pembayaran harus bilangan bulat positif.');
++  if (!allowedObject(req.body, ['simulation']) || req.body.simulation !== true) {
++    return invalid(res,'SIMULATION_ACK_REQUIRED','Kirim {"simulation":true}. Endpoint ini tidak memindahkan uang sungguhan.');
++  }
++  return send(res, await billing.confirmPayment(id, req.pengguna.id));
++};
++const cancel = async (req, res) => {
++  const id = parseId(req.params.id);
++  if (!id) return invalid(res,'INVALID_PAYMENT_ID','ID pembayaran harus bilangan bulat positif.');
++  if (req.body !== undefined && !allowedObject(req.body, [])) return invalid(res,'INVALID_CANCEL_INPUT','Pembatalan tidak menerima field tambahan.');
++  return send(res, await billing.cancelPayment(id, req.pengguna.id));
++};
++module.exports = { plans, checkout, me, payment, myPayments: list(), pendingPayments: list(true), confirm, cancel };
+--- W7/src/routes/apiKey.js
++++ BookData_2/src/routes/apiKey.js
 @@ -0,0 +1,11 @@
 +const router = require("express").Router();
 +const verifyJWT = require("../middlewares/verifyJWT");
@@ -102,3 +179,155 @@
 +router.get("/me", asyncHandler(c.me));
 +router.patch("/level/:id", checkRoles("admin"), asyncHandler(c.setLevel));
 +module.exports = router;
+--- W7/src/services/billing.js
++++ BookData_2/src/services/billing.js
+@@ -0,0 +1,136 @@
++// BRYAN: checkout dan konfirmasi simulasi. Semua nominal berasal dari server.
++const crypto = require('node:crypto');
++const { Transaction } = require('sequelize');
++const { sequelize, Pengguna, Payment, Subscription } = require('../models');
++const { API_PLANS } = require('../config/apiPlans');
++const { databaseNow } = require('./clock');
++const DAY_MS = 86400000;
++const failure = (status, code, msg) => ({ status, body: { code, msg } });
++const txOptions = { isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED };
++
++function paymentView(row) {
++  const fields = ['id','invoice_no','pengguna_id','plan','amount','currency','billing_days',
++    'status','expires_at','paid_at','confirmed_by','period_start','period_end','createdAt'];
++  return Object.fromEntries(fields.map(key => [key, row[key]]));
++}
++
++// DANA: api_level adalah cache. Subscription aktif adalah sumber hak akses.
++async function effectiveSubscription(user, now, transaction) {
++  const subscription = await Subscription.findOne({ where: { pengguna_id: user.id }, transaction });
++  const active = Boolean(subscription && subscription.status === 'active' &&
++    +subscription.starts_at <= +now && +subscription.ends_at > +now);
++  const level = active ? 'premium' : 'basic';
++  if (subscription && subscription.status === 'active' && +subscription.ends_at <= +now) {
++    await subscription.update({ status: 'expired' }, { transaction });
++  }
++  if (user.api_level !== level) await user.update({ api_level: level }, { transaction });
++  return {
++    api_level: level, plan: API_PLANS[level],
++    subscription: subscription ? {
++      id: subscription.id, plan: subscription.plan, status: active ? 'active' : 'expired',
++      starts_at: subscription.starts_at, ends_at: subscription.ends_at, source: subscription.source,
++      remaining_seconds: active ? Math.max(0, Math.floor((+subscription.ends_at - +now) / 1000)) : 0,
++    } : { status: 'none', plan: 'basic', starts_at: null, ends_at: null, remaining_seconds: 0 },
++    server_time: now.toISOString(), payment_mode: 'simulation', auto_renew: false,
++  };
++}
++
++async function subscriptionMe(userId) {
++  return sequelize.transaction(txOptions, async transaction => {
++    const user = await Pengguna.unscoped().findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
++    if (!user) return null;
++    return effectiveSubscription(user, await databaseNow(transaction), transaction);
++  });
++}
++
++async function expirePayment(payment, now, transaction) {
++  if (payment.status === 'pending' && +payment.expires_at <= +now) {
++    await payment.update({ status: 'expired' }, { transaction });
++  }
++}
++
++async function checkout(userId, planName, checkoutKey) {
++  const plan = API_PLANS[planName];
++  return sequelize.transaction(txOptions, async transaction => {
++    const user = await Pengguna.unscoped().findByPk(userId, { transaction, lock: transaction.LOCK.UPDATE });
++    if (!user) return failure(404, 'USER_NOT_FOUND');
++    const now = await databaseNow(transaction);
++    const previous = await Payment.findOne({ where: { pengguna_id: userId, checkout_key: checkoutKey }, transaction });
++    if (previous) {
++      if (previous.plan !== planName) return failure(409, 'IDEMPOTENCY_CONFLICT');
++      await expirePayment(previous, now, transaction);
++      return { status: 200, body: { payment: paymentView(previous), replayed: true,
++        payment_mode: 'simulation', msg: 'Checkout yang sama tidak membuat invoice baru.' } };
++    }
++    const payment = await Payment.create({
++      invoice_no: `INV-${now.toISOString().slice(0,10).replaceAll('-','')}-${crypto.randomBytes(8).toString('hex').toUpperCase()}`,
++      pengguna_id: userId, plan: planName, amount: plan.price, currency: plan.currency,
++      billing_days: plan.billingDays, checkout_key: checkoutKey, status: 'pending',
++      expires_at: new Date(+now + DAY_MS),
++    }, { transaction });
++    return { status: 201, body: { payment: paymentView(payment), replayed: false,
++      payment_mode: 'simulation', msg: 'Invoice pending berlaku 24 jam. Admin mengonfirmasi pembayaran simulasi. Tidak ada uang sungguhan yang ditagihkan.' } };
++  });
++}
++
++async function getPayment(id, requesterId, isAdmin = false) {
++  return sequelize.transaction(txOptions, async transaction => {
++    const payment = await Payment.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
++    if (!payment || (!isAdmin && Number(payment.pengguna_id) !== Number(requesterId))) return null;
++    await expirePayment(payment, await databaseNow(transaction), transaction);
++    return paymentView(payment);
++  });
++}
++
++async function listPayments(userId, page, limit, pendingOnly = false) {
++  const { Op } = require('sequelize');
++  const where = userId ? { pengguna_id: userId } : {};
++  const now = await databaseNow();
++  await Payment.update({ status: 'expired' }, { where: { ...where, status: 'pending', expires_at: { [Op.lte]: now } } });
++  if (pendingOnly) where.status = 'pending';
++  const result = await Payment.findAndCountAll({ where, limit, offset: (page - 1) * limit, order: [['id','DESC']] });
++  return { data: result.rows.map(paymentView), total: result.count, page, limit, payment_mode: 'simulation' };
++}
++
++async function changePayment(id, actorId, confirm) {
++  const seed = await Payment.findByPk(id, { attributes: ['id','pengguna_id'] });
++  if (!seed || (!confirm && Number(seed.pengguna_id) !== Number(actorId))) return failure(404, 'PAYMENT_NOT_FOUND');
++  // Satu urutan lock di seluruh jalur: pengguna dahulu, kemudian invoice.
++  return sequelize.transaction(txOptions, async transaction => {
++    const user = await Pengguna.unscoped().findByPk(seed.pengguna_id, { transaction, lock: transaction.LOCK.UPDATE });
++    const payment = await Payment.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
++    if (!user || !payment) return failure(404, 'PAYMENT_NOT_FOUND');
++    const now = await databaseNow(transaction);
++    await expirePayment(payment, now, transaction);
++    if (confirm && payment.status === 'paid') {
++      const state = await effectiveSubscription(user, now, transaction);
++      return { status: 200, body: { payment: paymentView(payment), ...state, replayed: true,
++        msg: 'Invoice sudah dibayar. Konfirmasi ulang tidak menambah masa aktif.' } };
++    }
++    if (!confirm && payment.status === 'cancelled') {
++      return { status: 200, body: { payment: paymentView(payment), replayed: true } };
++    }
++    if (payment.status !== 'pending') return failure(409, 'PAYMENT_NOT_PENDING', `Invoice berstatus ${payment.status}.`);
++    if (!confirm) {
++      await payment.update({ status: 'cancelled' }, { transaction });
++      return { status: 200, body: { payment: paymentView(payment), replayed: false } };
++    }
++    const current = await Subscription.findOne({ where: { pengguna_id: user.id }, transaction });
++    const stillActive = current && current.status === 'active' && +current.starts_at <= +now && +current.ends_at > +now;
++    const periodStart = stillActive ? current.ends_at : now;
++    const periodEnd = new Date(+periodStart + payment.billing_days * DAY_MS);
++    const values = { plan: payment.plan, status: 'active',
++      starts_at: stillActive ? current.starts_at : now, ends_at: periodEnd, source: 'payment' };
++    if (current) await current.update(values, { transaction });
++    else await Subscription.create({ pengguna_id: user.id, ...values }, { transaction });
++    await payment.update({ status: 'paid', paid_at: now, confirmed_by: actorId,
++      period_start: periodStart, period_end: periodEnd }, { transaction });
++    const state = await effectiveSubscription(user, now, transaction);
++    return { status: 200, body: { payment: paymentView(payment), ...state, replayed: false,
++      msg: 'Pembayaran simulasi dikonfirmasi. Premium aktif atau diperpanjang 30 hari. Tidak ada debit uang sungguhan.' } };
++  });
++}
++
++module.exports = { effectiveSubscription, subscriptionMe, checkout, getPayment, listPayments,
++  confirmPayment: (id, actorId) => changePayment(id, actorId, true),
++  cancelPayment: (id, actorId) => changePayment(id, actorId, false) };
+--- W7/src/utils/apiKey.js
++++ BookData_2/src/utils/apiKey.js
+@@ -0,0 +1,10 @@
++const crypto = require("node:crypto");
++// Key baru memiliki 256 bit acak. Database hanya menyimpan SHA-256.
++const createApiKey = () =>
++  `bd_live_${crypto.randomBytes(32).toString("hex")}`;
++const hashApiKey = (rawKey) =>
++  crypto.createHash("sha256").update(rawKey).digest("hex");
++// UUID lama W7 tetap bisa dipakai setelah db:upgrade meng-hash nilainya.
++const isApiKey = (value) => typeof value === "string" &&
++  /^(bd_live_[a-f0-9]{64}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.test(value);
++module.exports = { createApiKey, hashApiKey, isApiKey };

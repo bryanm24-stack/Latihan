@@ -13,7 +13,7 @@
  * Konsep yang membuat auth ini "aman alasan-alasannya":
  *   - hash bukan enkripsi (bcrypt.hash / bcrypt.compare)
  *   - JWT: ditandatangani, BUKAN disandikan (bisa dibaca siapa pun)
- *   - access token pendek (30 detik, untuk melihat kedaluwarsa hidup)
+ *   - access token 15 menit secara default (ACCESS_TOKEN_TTL dapat diatur)
  *   - refresh token panjang (1 hari), di httpOnly cookie
  */
 const crypto = require("crypto");
@@ -171,13 +171,13 @@ const login = async (req, res) => {
   };
 
   // DUA token, dua masa hidup:
-  //   accessToken  30 detik -- cukup untuk beberapa request. Kalau
+  //   accessToken  mengikuti ACCESS_TOKEN_TTL, default 15 menit. Kalau
   //                bocor, bocornya sebentar.
   //   refreshToken 1 hari  -- memperpanjang akses TANPA login ulang.
   //                Karena lebih berharga, tempatnya httpOnly cookie:
   //                TIDAK bisa dibaca JavaScript browser (anti XSS).
   const accessToken = jwt.sign(payload, process.env.ACCESS_TOKEN_SECRET, {
-    expiresIn: "30s",
+    expiresIn: process.env.ACCESS_TOKEN_TTL || "15m",
   });
   const refreshToken = jwt.sign(payload, process.env.REFRESH_TOKEN_SECRET, {
     expiresIn: "1d",
@@ -218,7 +218,7 @@ const refresh = async (req, res) => {
     const accessToken = jwt.sign(
       { pengguna: decoded.pengguna },
       process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: "30s" }
+      { expiresIn: process.env.ACCESS_TOKEN_TTL || "15m" }
     );
 
     return res.status(200).json({ accessToken });

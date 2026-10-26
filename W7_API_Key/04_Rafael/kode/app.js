@@ -25,6 +25,9 @@ const {
   penggunaRouter,
   apiKeyRouter,
   partnerRouter,
+  plansRouter,
+  subscriptionRouter,
+  paymentRouter,
 } = require("./src/routes");
 
 
@@ -55,7 +58,7 @@ app.use(logger);
 app.get("/", (req, res) =>
   res.json({
     service: "BookData API W7 + API Key",
-    version: "1.1.0",
+    version: "2.0.0",
     endpoints: [
       "/api/v1/contoh",
       "/api/v1/buku",
@@ -64,17 +67,25 @@ app.get("/", (req, res) =>
       "/api/v1/pengguna",
       "/api/v1/api-key",
       "/api/v1/partner",
+      "/api/v1/plans",
+      "/api/v1/subscriptions",
+      "/api/v1/payments",
     ],
   })
 );
 
 app.use("/api/v1/contoh", contohRouter);
-app.use("/api/v1/buku", bukuRouter);
+// Data sumber hanya dikelola admin. Pelanggan memakai layanan partner sesuai paket.
+app.use("/api/v1/buku", require("./src/middlewares/verifyJWT"),
+  require("./src/middlewares/checkRoles")("admin"), bukuRouter);
 app.use("/api/v1/contohAxios", axiosRouter);
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/pengguna", penggunaRouter);
 app.use("/api/v1/api-key", apiKeyRouter);
 app.use("/api/v1/partner", partnerRouter);
+app.use("/api/v1/plans", plansRouter);
+app.use("/api/v1/subscriptions", subscriptionRouter);
+app.use("/api/v1/payments", paymentRouter);
 
 /* ------------------------------------------------------------------ */
 /* 3. PENANGKAP DI PALING BAWAH                                        */

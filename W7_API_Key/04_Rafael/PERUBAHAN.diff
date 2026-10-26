@@ -1,85 +1,28 @@
---- /dev/null
-+++ b/src/controllers/partner.js
-@@ -0,0 +1,24 @@
-+// RAFAEL: hasil dihitung dari data buku W7 yang sesungguhnya.
-+const { Op } = require("sequelize");
-+const { Buku, sequelize } = require("../models");
-+const ringkasan = async (req, res) => {
-+  const [row] = await Buku.findAll({ attributes: [
-+    [sequelize.fn("COUNT", sequelize.col("id")), "total_judul"],
-+    [sequelize.fn("SUM", sequelize.col("stok")), "total_stok"],
-+    [sequelize.fn("AVG", sequelize.col("harga")), "rata_rata_harga"],
-+  ], raw: true });
-+  return res.json({ data: { total_judul: Number(row.total_judul), total_stok: Number(row.total_stok || 0),
-+    rata_rata_harga: Math.round(Number(row.rata_rata_harga || 0)) } });
-+};
-+const analitik = async (req, res) => {
-+  const kategori = await Buku.findAll({ attributes: ["kategori",
-+    [sequelize.fn("COUNT", sequelize.col("id")), "total_judul"],
-+    [sequelize.fn("SUM", sequelize.col("stok")), "total_stok"],
-+  ], group: ["kategori"], order: [["kategori", "ASC"]], raw: true });
-+  const stokRendah = await Buku.findAll({ where: { stok: { [Op.lte]: 5 } },
-+    attributes: ["id", "judul", "stok"], order: [["stok", "ASC"], ["id", "ASC"]] });
-+  return res.json({ data: { kategori: kategori.map((r) => ({ ...r,
-+    total_judul: Number(r.total_judul), total_stok: Number(r.total_stok) })),
-+    stok_rendah: stokRendah, ambang_stok_rendah: 5 } });
-+};
-+module.exports = { ringkasan, analitik };
---- /dev/null
-+++ b/src/routes/partner.js
-@@ -0,0 +1,12 @@
-+const router = require("express").Router();
-+const asyncHandler = require("../utils/asyncHandler");
-+const verifyApiKey = require("../middlewares/verifyApiKey");
-+const checkApiLevel = require("../middlewares/checkApiLevel");
-+const limitApiUsage = require("../middlewares/limitApiUsage");
-+const { ringkasan, analitik } = require("../controllers/partner");
-+// Cek fitur SEBELUM reservasi. Penolakan 401/403/429 tidak menghabiskan kuota.
-+router.get("/ringkasan", asyncHandler(verifyApiKey), checkApiLevel("ringkasan"),
-+  asyncHandler(limitApiUsage), asyncHandler(ringkasan));
-+router.get("/analitik", asyncHandler(verifyApiKey), checkApiLevel("analitik"),
-+  asyncHandler(limitApiUsage), asyncHandler(analitik));
-+module.exports = router;
---- a/src/routes/index.js
-+++ b/src/routes/index.js
-@@ -7,6 +7,8 @@
- const axiosRouter = require("./contohAxios");
- const authRouter = require("./auth");
- const penggunaRouter = require("./pengguna");
-+const apiKeyRouter = require("./apiKey");
-+const partnerRouter = require("./partner");
+--- W7/.env.example
++++ BookData_2/.env.example
+@@ -9,7 +9,7 @@
+ DB_PORT=3306
+ DB_USER=root
+ DB_PASSWORD=
+-DB_NAME=soa_minggu7
++DB_NAME=soa_bookdata_w8
  
- module.exports = {
-   contohRouter,
-@@ -14,4 +16,6 @@
-   axiosRouter,
-   authRouter,
-   penggunaRouter,
-+  apiKeyRouter,
-+  partnerRouter,
- };
---- a/src/databases/connection.js
-+++ b/src/databases/connection.js
-@@ -27,6 +27,7 @@
-     host: process.env.DB_HOST || "127.0.0.1",
-     port: Number(process.env.DB_PORT) || 3306,
-     dialect: "mysql",
-+    timezone: "+00:00",
- 
-     // Pool — versi ORM dari konfigurasi pool Minggu 3.
-     pool: {
-@@ -46,7 +47,7 @@
-      *
-      * Setelah selesai belajar, ganti menjadi `logging: false`.
-      */
--    logging: (sql) => console.log("[SQL]", sql),
-+    logging: process.env.SQL_LOG === "true" ? (sql) => console.log("[SQL]", sql) : false,
-     // logging: false,
- 
-     define: {
---- /dev/null
-+++ b/app.js
-@@ -0,0 +1,86 @@
+ # API pihak ketiga — Minggu 6
+ # Webhook Discord (opsional): buat channel Discord -> Integrations -> Webhook.
+@@ -21,3 +21,10 @@
+ # Dua-duanya HARUS berbeda. Jangan pernah masuk git.
+ ACCESS_TOKEN_SECRET=ganti_dengan_64_karakter_acak
+ REFRESH_TOKEN_SECRET=ganti_dengan_64_karakter_acak_yang_berbeda
++
++# W8: logging SQL opsional dan nama database test terpisah
++SQL_LOG=false
++TEST_DB_NAME=soa_bookdata_w8_test
++
++# JWT akses default 15 menit. Set 30s jika ingin demonstrasi token singkat.
++ACCESS_TOKEN_TTL=15m
+--- W7/app.js
++++ BookData_2/app.js
+@@ -0,0 +1,97 @@
 +/**
 + * TITIK MASUK APLIKASI
 + *
@@ -107,6 +50,9 @@
 +  penggunaRouter,
 +  apiKeyRouter,
 +  partnerRouter,
++  plansRouter,
++  subscriptionRouter,
++  paymentRouter,
 +} = require("./src/routes");
 +
 +
@@ -137,7 +83,7 @@
 +app.get("/", (req, res) =>
 +  res.json({
 +    service: "BookData API W7 + API Key",
-+    version: "1.1.0",
++    version: "2.0.0",
 +    endpoints: [
 +      "/api/v1/contoh",
 +      "/api/v1/buku",
@@ -146,17 +92,25 @@
 +      "/api/v1/pengguna",
 +      "/api/v1/api-key",
 +      "/api/v1/partner",
++      "/api/v1/plans",
++      "/api/v1/subscriptions",
++      "/api/v1/payments",
 +    ],
 +  })
 +);
 +
 +app.use("/api/v1/contoh", contohRouter);
-+app.use("/api/v1/buku", bukuRouter);
++// Data sumber hanya dikelola admin. Pelanggan memakai layanan partner sesuai paket.
++app.use("/api/v1/buku", require("./src/middlewares/verifyJWT"),
++  require("./src/middlewares/checkRoles")("admin"), bukuRouter);
 +app.use("/api/v1/contohAxios", axiosRouter);
 +app.use("/api/v1/auth", authRouter);
 +app.use("/api/v1/pengguna", penggunaRouter);
 +app.use("/api/v1/api-key", apiKeyRouter);
 +app.use("/api/v1/partner", partnerRouter);
++app.use("/api/v1/plans", plansRouter);
++app.use("/api/v1/subscriptions", subscriptionRouter);
++app.use("/api/v1/payments", paymentRouter);
 +
 +/* ------------------------------------------------------------------ */
 +/* 3. PENANGKAP DI PALING BAWAH                                        */
@@ -166,8 +120,8 @@
 +app.use(errorHandler);   // ada error yang tidak tertangkap -> 500
 +
 +module.exports = app;
---- a/index.js
-+++ b/index.js
+--- W7/index.js
++++ BookData_2/index.js
 @@ -1,16 +1,4 @@
 -/**
 - * TITIK MASUK APLIKASI
@@ -263,26 +217,35 @@
 -  testConnection();
 -});
 +app.listen(port, () => { console.log(`BookData API berjalan pada port ${port}`); testConnection(); });
---- a/.env.example
-+++ b/.env.example
-@@ -21,3 +21,7 @@
- # Dua-duanya HARUS berbeda. Jangan pernah masuk git.
- ACCESS_TOKEN_SECRET=ganti_dengan_64_karakter_acak
- REFRESH_TOKEN_SECRET=ganti_dengan_64_karakter_acak_yang_berbeda
-+
-+# W8: logging SQL opsional dan nama database test terpisah
-+SQL_LOG=false
-+TEST_DB_NAME=soa_bookdata_w8_test
---- a/package.json
-+++ b/package.json
+--- W7/package-lock.json
++++ BookData_2/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+-  "name": "soa-minggu7",
+-  "version": "1.0.0",
++  "name": "bookdata-api-w7",
++  "version": "2.0.0",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+-      "name": "soa-minggu7",
+-      "version": "1.0.0",
++      "name": "bookdata-api-w7",
++      "version": "2.0.0",
+       "license": "ISC",
+       "dependencies": {
+         "axios": "^1.7.9",
+--- W7/package.json
++++ BookData_2/package.json
 @@ -1,12 +1,16 @@
  {
 -  "name": "soa-minggu7",
 -  "version": "1.0.0",
 -  "description": "Starter Praktikum Minggu 7 - Auth JWT",
 +  "name": "bookdata-api-w7",
-+  "version": "1.1.0",
-+  "description": "W7 + Business Model API Key Basic/Premium",
++  "version": "2.0.0",
++  "description": "BookData API: checkout, invoice simulasi, subscription 30 hari, API key dan kuota",
    "main": "index.js",
    "scripts": {
      "start": "node index.js",
@@ -297,779 +260,1524 @@
    },
    "engines": {
      "node": "24.x"
---- a/package-lock.json
-+++ b/package-lock.json
-@@ -1,12 +1,12 @@
- {
--  "name": "soa-minggu7",
--  "version": "1.0.0",
-+  "name": "bookdata-api-w7",
-+  "version": "1.1.0",
-   "lockfileVersion": 3,
-   "requires": true,
-   "packages": {
-     "": {
--      "name": "soa-minggu7",
--      "version": "1.0.0",
-+      "name": "bookdata-api-w7",
-+      "version": "1.1.0",
-       "license": "ISC",
-       "dependencies": {
-         "axios": "^1.7.9",
---- /dev/null
-+++ b/scripts/setup-env.js
-@@ -0,0 +1,12 @@
-+// RAFAEL: membuat .env lokal sekali saja, tanpa menimpa konfigurasi lama.
-+const fs = require("node:fs");
-+const crypto = require("node:crypto");
-+if (fs.existsSync(".env")) { console.log(".env sudah ada. Tidak ditimpa."); process.exit(0); }
-+let text = fs.readFileSync(".env.example", "utf8");
-+text = text.replace(/^ACCESS_TOKEN_SECRET=.*$/m,
-+  `ACCESS_TOKEN_SECRET=${crypto.randomBytes(64).toString("hex")}`);
-+text = text.replace(/^REFRESH_TOKEN_SECRET=.*$/m,
-+  `REFRESH_TOKEN_SECRET=${crypto.randomBytes(64).toString("hex")}`);
-+text = text.replace(/^DB_NAME=.*$/m, "DB_NAME=soa_bookdata_w8");
-+fs.writeFileSync(".env", text, { mode: 0o600 });
-+console.log(".env dibuat. Sesuaikan DB_HOST, DB_PORT, DB_USER dan DB_PASSWORD.");
---- /dev/null
-+++ b/scripts/create-test-db.js
-@@ -0,0 +1,19 @@
-+// Database pengujian TERPISAH. Hanya nama *_test boleh dipakai.
-+require("dotenv").config();
-+const mysql = require("mysql2/promise");
-+const fs = require("node:fs");
-+const path = require("node:path");
-+async function main() {
-+  const name = process.env.TEST_DB_NAME || "soa_bookdata_w8_test";
-+  if (!/^[a-zA-Z0-9_]+_test$/.test(name)) throw new Error("TEST_DB_NAME harus berakhiran _test");
-+  const conn = await mysql.createConnection({ host: process.env.DB_HOST || "127.0.0.1",
-+    port: Number(process.env.DB_PORT) || 3306, user: process.env.DB_USER || "root",
-+    password: process.env.DB_PASSWORD || "", multipleStatements: true });
-+  try {
-+    await conn.query(`CREATE DATABASE IF NOT EXISTS \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
-+    await conn.query(`USE \`${name}\``);
-+    for (const file of ["schema.sql", "seed.sql"]) await conn.query(fs.readFileSync(path.join(__dirname, "../sql", file), "utf8"));
-+    console.log(`Database uji ${name} siap.`);
-+  } finally { await conn.end(); }
-+}
-+main().catch((err) => { console.error(err.message); process.exitCode = 1; });
---- /dev/null
-+++ b/tests/api-key.integration.test.js
-@@ -0,0 +1,175 @@
-+// RAFAEL: HTTP + Sequelize + MySQL nyata. Jalankan test:prepare terlebih dahulu.
-+require("dotenv").config();
-+process.env.DB_NAME = process.env.TEST_DB_NAME || "soa_bookdata_w8_test";
-+if (!/^[a-zA-Z0-9_]+_test$/.test(process.env.DB_NAME)) throw new Error("Database uji harus berakhiran _test");
-+process.env.ACCESS_TOKEN_SECRET ||= "a".repeat(128);
-+process.env.REFRESH_TOKEN_SECRET ||= "b".repeat(128);
-+const { test, before, after } = require("node:test");
-+const assert = require("node:assert/strict");
-+const { once } = require("node:events");
-+const crypto = require("node:crypto");
-+const { sequelize, Pengguna, ApiLog } = require("../src/models");
-+const app = require("../app");
-+const { hashApiKey } = require("../src/utils/apiKey");
-+let server, base, seq = 0;
-+const suffix = crypto.randomBytes(4).toString("hex");
-+async function request(path, { method = "GET", token, key, body } = {}) {
-+  const headers = {};
-+  if (token) headers.Authorization = `Bearer ${token}`;
-+  if (key) headers["X-API-Key"] = key;
-+  if (body) headers["Content-Type"] = "application/json";
-+  const response = await fetch(base + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
-+  return { status: response.status, body: await response.json(), headers: response.headers };
-+}
-+const auth = (path, options) => request(`/api/v1/auth/${path}`, options);
-+const manage = (path, options) => request(`/api/v1/api-key/${path}`, options);
-+const partner = (path, key) => request(`/api/v1/partner/${path}`, { key });
-+async function account() {
-+  const name = `t${suffix}${++seq}`;
-+  const reg = await auth("register", { method: "POST", body: { pengguna_nama: name, pengguna_password: "Tester123!" } });
-+  assert.equal(reg.status, 201);
-+  const login = await auth("login", { method: "POST", body: { pengguna_nama: name, pengguna_password: "Tester123!" } });
-+  return { id: reg.body.id, token: login.body.accessToken, registered: reg.body };
-+}
-+async function withKey() {
-+  const user = await account();
-+  const issued = await manage("generate", { method: "POST", token: user.token });
-+  assert.equal(issued.status, 201);
-+  return { ...user, key: issued.body.api_key };
-+}
-+before(async () => {
-+  await sequelize.authenticate();
-+  server = app.listen(0, "127.0.0.1"); await once(server, "listening");
-+  base = `http://127.0.0.1:${server.address().port}`;
-+});
-+after(async () => {
-+  if (server) await new Promise((resolve) => server.close(resolve));
-+  await sequelize.close();
-+});
-+test("BookData API: alur bisnis dan batas akses pada database nyata", async (t) => {
-+  const user = await withKey();
-+  await t.test("register tidak membocorkan hash password / api_key", () => {
-+    assert.equal(user.registered.api_key, undefined);
-+    assert.equal(user.registered.pengguna_password, undefined);
-+    assert.equal(user.registered.api_level, "basic");
-+  });
-+  await t.test("database menyimpan SHA-256, bukan raw key", async () => {
-+    const row = await Pengguna.unscoped().findByPk(user.id);
-+    assert.match(user.key, /^bd_live_[a-f0-9]{64}$/);
-+    assert.equal(row.api_key, hashApiKey(user.key));
-+    assert.notEqual(row.api_key, user.key);
-+  });
-+  await t.test("generate memerlukan JWT", async () => {
-+    assert.equal((await manage("generate", { method: "POST" })).status, 401);
-+  });
-+  await t.test("generate kedua menghasilkan 409", async () => {
-+    assert.equal((await manage("generate", { method: "POST", token: user.token })).status, 409);
-+  });
-+  await t.test("dua generate bersamaan hanya menerbitkan satu key", async () => {
-+    const u = await account();
-+    const results = await Promise.all([1, 2].map(() => manage("generate", { method: "POST", token: u.token })));
-+    assert.deepEqual(results.map((r) => r.status).sort(), [201, 409]);
-+  });
-+  await t.test("key hilang / salah dan JWT saja tidak memberi akses partner", async () => {
-+    assert.equal((await partner("ringkasan")).status, 401);
-+    assert.equal((await partner("ringkasan", "bd_live_" + "0".repeat(64))).status, 401);
-+    assert.equal((await request("/api/v1/partner/ringkasan", { token: user.token })).status, 401);
-+  });
-+  await t.test("Basic mendapat ringkasan dari buku W7 dan header sisa kuota", async () => {
-+    const r = await partner("ringkasan", user.key);
-+    assert.equal(r.status, 200); assert.ok(r.body.data.total_judul >= 5);
-+    assert.equal(r.headers.get("x-daily-remaining"), "99");
-+  });
-+  await t.test("Basic ditolak analitik tanpa menghabiskan kuota", async () => {
-+    const before = await ApiLog.count({ where: { pengguna_id: user.id } });
-+    assert.equal((await partner("analitik", user.key)).status, 403);
-+    assert.equal(await ApiLog.count({ where: { pengguna_id: user.id } }), before);
-+  });
-+  await t.test("visitor tidak dapat upgrade paket sendiri", async () => {
-+    assert.equal((await manage(`level/${user.id}`, { method: "PATCH", token: user.token,
-+      body: { api_level: "premium" } })).status, 403);
-+  });
-+  const admin = await auth("login", { method: "POST", body: { pengguna_nama: "admin", pengguna_password: "Admin123!" } });
-+  assert.equal(admin.status, 200);
-+  await t.test("admin menolak paket / id / body yang salah", async () => {
-+    for (const [id, body] of [[user.id, { api_level: "gold" }], ["abc", { api_level: "premium" }],
-+      [user.id, { api_level: "premium", roles: "admin" }], [user.id, { api_level: { toString: "bad" } }]]) {
-+      assert.equal((await manage(`level/${id}`, { method: "PATCH", token: admin.body.accessToken, body })).status, 400);
-+    }
-+  });
-+  await t.test("admin menerima 404 jika target tidak ada", async () => {
-+    assert.equal((await manage("level/2147483647", { method: "PATCH", token: admin.body.accessToken,
-+      body: { api_level: "premium" } })).status, 404);
-+  });
-+  await t.test("admin mengaktifkan Premium, key yang sama langsung mendapat analitik", async () => {
-+    assert.equal((await manage(`level/${user.id}`, { method: "PATCH", token: admin.body.accessToken,
-+      body: { api_level: "premium" } })).status, 200);
-+    const r = await partner("analitik", user.key);
-+    assert.equal(r.status, 200); assert.ok(Array.isArray(r.body.data.kategori));
-+    assert.equal(r.headers.get("x-api-level"), "premium");
-+  });
-+  await t.test("me menampilkan penggunaan tanpa raw key atau hash", async () => {
-+    const r = await manage("me", { token: user.token });
-+    assert.equal(r.status, 200); assert.equal(r.body.usage.daily, 2);
-+    assert.equal(r.body.api_key, undefined); assert.equal(r.body.has_api_key, true);
-+    assert.ok(!JSON.stringify(r.body).includes(hashApiKey(user.key)));
-+  });
-+  await t.test("regenerate mencabut key lama tanpa menghapus pemakaian", async () => {
-+    const r = await manage("regenerate", { method: "POST", token: user.token });
-+    assert.equal(r.status, 200); assert.notEqual(r.body.api_key, user.key);
-+    assert.equal((await partner("ringkasan", user.key)).status, 401);
-+    assert.equal((await partner("ringkasan", r.body.api_key)).status, 200);
-+    user.key = r.body.api_key;
-+    assert.equal((await manage("me", { token: user.token })).body.usage.daily, 3);
-+  });
-+  await t.test("downgrade segera menolak analitik", async () => {
-+    await manage(`level/${user.id}`, { method: "PATCH", token: admin.body.accessToken, body: { api_level: "basic" } });
-+    assert.equal((await partner("analitik", user.key)).status, 403);
-+  });
-+  await t.test("11 request Basic bersamaan menerima tepat 10 slot", async () => {
-+    const u = await withKey();
-+    // Hindari lintas batas menit pada kasus uji ini.
-+    const remaining = 60000 - (Date.now() % 60000);
-+    if (remaining < 3000) await new Promise((r) => setTimeout(r, remaining + 20));
-+    const rs = await Promise.all(Array.from({ length: 11 }, () => partner("ringkasan", u.key)));
-+    assert.equal(rs.filter((r) => r.status === 200).length, 10);
-+    const denied = rs.filter((r) => r.status === 429);
-+    assert.equal(denied.length, 1); assert.equal(denied[0].body.code, "RATE_LIMIT_EXCEEDED");
-+    assert.ok(Number(denied[0].headers.get("retry-after")) > 0);
-+    assert.equal(await ApiLog.count({ where: { pengguna_id: u.id } }), 10);
-+  });
-+  await t.test("kuota harian 100 menolak request berikutnya walaupun menit masih kosong", async () => {
-+    const u = await withKey();
-+    const now = new Date(); const day = new Date(now); day.setUTCHours(0, 0, 0, 0);
-+    // Fixture tetap pada hari UTC ini. Kuota harian diperiksa terlebih dahulu.
-+    const minute = new Date(now); minute.setUTCSeconds(0, 0);
-+    const old = new Date(Math.max(+day, +minute - 1000));
-+    await ApiLog.bulkCreate(Array.from({ length: 100 }, () => ({ pengguna_id: u.id,
-+      endpoint: "/fixture", http_method: "GET", status_code: 200, createdAt: old })));
-+    const r = await partner("ringkasan", u.key);
-+    assert.equal(r.status, 429); assert.equal(r.body.code, "DAILY_QUOTA_EXCEEDED");
-+  });
-+  await t.test("Premium meloloskan lebih dari 10 request per menit", async () => {
-+    const u = await withKey(); await Pengguna.update({ api_level: "premium" }, { where: { id: u.id } });
-+    const rs = await Promise.all(Array.from({ length: 12 }, () => partner("ringkasan", u.key)));
-+    assert.ok(rs.every((r) => r.status === 200));
-+  });
-+  await t.test("log merekam HTTP status sesudah respons tanpa menyimpan key", async () => {
-+    let rows;
-+    for (let i = 0; i < 40; i++) {
-+      rows = await ApiLog.findAll({ where: { pengguna_id: user.id }, raw: true });
-+      if (rows.every((r) => r.status_code !== null)) break;
-+      await new Promise((r) => setTimeout(r, 25));
-+    }
-+    assert.ok(rows.length >= 3); assert.ok(rows.every((r) => r.status_code === 200));
-+    assert.ok(rows.every((r) => !JSON.stringify(r).includes(user.key)));
-+  });
-+  await t.test("UUID lama yang sudah di-hash masih dapat dipakai", async () => {
-+    const u = await account(); const legacy = crypto.randomUUID();
-+    await Pengguna.update({ api_key: hashApiKey(legacy) }, { where: { id: u.id } });
-+    assert.equal((await partner("ringkasan", legacy)).status, 200);
-+  });
-+  await t.test("endpoint buku W7 tetap tersedia", async () => {
-+    assert.equal((await request("/api/v1/buku")).status, 200);
-+  });
-+});
---- /dev/null
-+++ b/postman/BookData-W8.postman_collection.json
-@@ -0,0 +1,533 @@
+--- W7/postman/BookData-W8.postman_collection.json
++++ BookData_2/postman/BookData-W8.postman_collection.json
+@@ -0,0 +1,1512 @@
 +{
 +  "info": {
-+    "name": "BookData W8 API Key - Demo berurutan",
-+    "description": "Jalankan Runner berurutan dalam <30 detik. Access JWT W7 hanya 30 detik; login ulang jika manual. Tidak mengirim pesan ke layanan luar.",
-+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
++    "name": "BookData W8 — Subscription Lengkap",
++    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
++    "description": "Jalankan semua folder berurutan. Premium Rp99.000/30 hari. Pembayaran simulasi admin, tanpa debit uang. Expiry diuji otomatis di npm test menggunakan fixture database, tanpa endpoint backdoor."
 +  },
 +  "item": [
 +    {
-+      "name": "01 Register pelanggan acak",
-+      "request": {
-+        "method": "POST",
-+        "header": [
-+          {
-+            "key": "Content-Type",
-+            "value": "application/json"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/auth/register",
-+        "body": {
-+          "mode": "raw",
-+          "raw": "{\n  \"pengguna_nama\": \"{{demo_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
-+          "options": {
-+            "raw": {
-+              "language": "json"
-+            }
-+          }
-+        }
-+      },
-+      "event": [
++      "name": "1 Pelanggan Basic dan checkout",
++      "item": [
 +        {
-+          "listen": "prerequest",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.environment.set(\"demo_user\", \"demo\"+Date.now()+Math.floor(Math.random()*1000));"
-+            ]
-+          }
++          "name": "01 Lihat paket dan harga",
++          "request": {
++            "method": "GET",
++            "header": [],
++            "url": "{{base_url}}/api/v1/plans",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++                  "pm.test(\"Premium 99000 untuk 30 hari\",()=>{const p=pm.response.json().data.find(p=>p.id===\"premium\");pm.expect(p.price).to.eql(99000);pm.expect(p.duration_days).to.eql(30);});"
++                ]
++              }
++            }
++          ]
 +        },
 +        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
-+              "pm.environment.set(\"user_id\", pm.response.json().id);",
-+              "pm.test(\"Rahasia tidak bocor\",()=>{const j=pm.response.json(); pm.expect(j).not.to.have.property(\"api_key\"); pm.expect(j).not.to.have.property(\"pengguna_password\");});"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "02 Login pelanggan",
-+      "request": {
-+        "method": "POST",
-+        "header": [
-+          {
-+            "key": "Content-Type",
-+            "value": "application/json"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/auth/login",
-+        "body": {
-+          "mode": "raw",
-+          "raw": "{\n  \"pengguna_nama\": \"{{demo_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
-+          "options": {
-+            "raw": {
-+              "language": "json"
++          "name": "02 Register pelanggan",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/auth/register",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"pengguna_nama\": \"{{demo_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
 +            }
-+          }
-+        }
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-+              "pm.environment.set(\"access_token\", pm.response.json().accessToken);"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "03 Generate key",
-+      "request": {
-+        "method": "POST",
-+        "header": [
-+          {
-+            "key": "Authorization",
-+            "value": "Bearer {{access_token}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/api-key/generate"
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
-+              "pm.environment.set(\"api_key\", pm.response.json().api_key);"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "04 Generate kedua ditolak",
-+      "request": {
-+        "method": "POST",
-+        "header": [
-+          {
-+            "key": "Authorization",
-+            "value": "Bearer {{access_token}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/api-key/generate"
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "05 Partner tanpa key ditolak",
-+      "request": {
-+        "method": "GET",
-+        "header": [],
-+        "url": "{{base_url}}/api/v1/partner/ringkasan"
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "06 Basic mendapat ringkasan",
-+      "request": {
-+        "method": "GET",
-+        "header": [
-+          {
-+            "key": "X-API-Key",
-+            "value": "{{api_key}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/partner/ringkasan"
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-+              "pm.test(\"Sisa harian 99\",()=>pm.expect(pm.response.headers.get(\"X-Daily-Remaining\")).to.eql(\"99\"));"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "07 Basic ditolak analitik",
-+      "request": {
-+        "method": "GET",
-+        "header": [
-+          {
-+            "key": "X-API-Key",
-+            "value": "{{api_key}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/partner/analitik"
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "08 Visitor tidak dapat upgrade sendiri",
-+      "request": {
-+        "method": "PATCH",
-+        "header": [
-+          {
-+            "key": "Content-Type",
-+            "value": "application/json"
 +          },
-+          {
-+            "key": "Authorization",
-+            "value": "Bearer {{access_token}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
-+        "body": {
-+          "mode": "raw",
-+          "raw": "{\n  \"api_level\": \"premium\"\n}",
-+          "options": {
-+            "raw": {
-+              "language": "json"
++          "event": [
++            {
++              "listen": "prerequest",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.environment.set(\"demo_user\", \"buyer\"+Date.now()+Math.floor(Math.random()*1000));"
++                ]
++              }
++            },
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
++                  "pm.environment.set(\"user_id\", pm.response.json().id);",
++                  "pm.test(\"Basic tanpa rahasia\",()=>{const j=pm.response.json();pm.expect(j.api_level).to.eql(\"basic\");pm.expect(j).not.to.have.property(\"api_key\");pm.expect(j).not.to.have.property(\"pengguna_password\");});"
++                ]
++              }
 +            }
-+          }
-+        }
-+      },
-+      "event": [
++          ]
++        },
 +        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "09 Login admin demo",
-+      "request": {
-+        "method": "POST",
-+        "header": [
-+          {
-+            "key": "Content-Type",
-+            "value": "application/json"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/auth/login",
-+        "body": {
-+          "mode": "raw",
-+          "raw": "{\n  \"pengguna_nama\": \"admin\",\n  \"pengguna_password\": \"Admin123!\"\n}",
-+          "options": {
-+            "raw": {
-+              "language": "json"
++          "name": "03 Login pelanggan",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/auth/login",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"pengguna_nama\": \"{{demo_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
 +            }
-+          }
-+        }
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-+              "pm.environment.set(\"admin_token\", pm.response.json().accessToken);"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "10 Admin mengaktifkan Premium",
-+      "request": {
-+        "method": "PATCH",
-+        "header": [
-+          {
-+            "key": "Content-Type",
-+            "value": "application/json"
 +          },
-+          {
-+            "key": "Authorization",
-+            "value": "Bearer {{admin_token}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
-+        "body": {
-+          "mode": "raw",
-+          "raw": "{\n  \"api_level\": \"premium\"\n}",
-+          "options": {
-+            "raw": {
-+              "language": "json"
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++                  "pm.environment.set(\"access_token\", pm.response.json().accessToken);"
++                ]
++              }
 +            }
-+          }
-+        }
-+      },
-+      "event": [
++          ]
++        },
 +        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "11 Premium mengakses analitik",
-+      "request": {
-+        "method": "GET",
-+        "header": [
-+          {
-+            "key": "X-API-Key",
-+            "value": "{{api_key}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/partner/analitik"
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "12 Ringkasan pemakaian",
-+      "request": {
-+        "method": "GET",
-+        "header": [
-+          {
-+            "key": "Authorization",
-+            "value": "Bearer {{access_token}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/api-key/me"
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-+              "pm.test(\"Paket Premium\",()=>pm.expect(pm.response.json().api_level).to.eql(\"premium\"));"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "13 Regenerate key",
-+      "request": {
-+        "method": "POST",
-+        "header": [
-+          {
-+            "key": "Authorization",
-+            "value": "Bearer {{access_token}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/api-key/regenerate"
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-+              "pm.environment.set(\"old_api_key\", pm.environment.get(\"api_key\"));",
-+              "pm.environment.set(\"api_key\", pm.response.json().api_key);"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "14 Key lama dicabut",
-+      "request": {
-+        "method": "GET",
-+        "header": [
-+          {
-+            "key": "X-API-Key",
-+            "value": "{{old_api_key}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/partner/ringkasan"
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "15 Key baru berhasil",
-+      "request": {
-+        "method": "GET",
-+        "header": [
-+          {
-+            "key": "X-API-Key",
-+            "value": "{{api_key}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/partner/ringkasan"
-+      },
-+      "event": [
-+        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "16 Paket tidak dikenal ditolak",
-+      "request": {
-+        "method": "PATCH",
-+        "header": [
-+          {
-+            "key": "Content-Type",
-+            "value": "application/json"
++          "name": "04 Subscription awal Basic",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/me",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
 +          },
-+          {
-+            "key": "Authorization",
-+            "value": "Bearer {{admin_token}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
-+        "body": {
-+          "mode": "raw",
-+          "raw": "{\n  \"api_level\": \"gold\"\n}",
-+          "options": {
-+            "raw": {
-+              "language": "json"
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++                  "pm.test(\"Belum berlangganan\",()=>pm.expect(pm.response.json().api_level).to.eql(\"basic\"));"
++                ]
++              }
 +            }
-+          }
-+        }
-+      },
-+      "event": [
++          ]
++        },
 +        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
-+            ]
-+          }
-+        }
-+      ]
-+    },
-+    {
-+      "name": "17 Admin downgrade ke Basic",
-+      "request": {
-+        "method": "PATCH",
-+        "header": [
-+          {
-+            "key": "Content-Type",
-+            "value": "application/json"
++          "name": "05 Generate API key",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/api-key/generate",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
 +          },
-+          {
-+            "key": "Authorization",
-+            "value": "Bearer {{admin_token}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
-+        "body": {
-+          "mode": "raw",
-+          "raw": "{\n  \"api_level\": \"basic\"\n}",
-+          "options": {
-+            "raw": {
-+              "language": "json"
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
++                  "pm.environment.set(\"api_key\", pm.response.json().api_key);"
++                ]
++              }
 +            }
-+          }
-+        }
-+      },
-+      "event": [
++          ]
++        },
 +        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
-+            ]
-+          }
++          "name": "06 Basic memakai ringkasan",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "X-API-Key",
++                "value": "{{api_key}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/partner/ringkasan",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "07 Basic ditolak analitik",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "X-API-Key",
++                "value": "{{api_key}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/partner/analitik",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "08 Checkout tanpa JWT ditolak",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/checkout",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"plan\": \"premium\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "09 Harga dari pelanggan ditolak",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/checkout",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"plan\": \"premium\",\n  \"amount\": 1\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "10 Checkout Premium membuat invoice pending",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              },
++              {
++                "key": "Idempotency-Key",
++                "value": "{{checkout_key}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/checkout",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"plan\": \"premium\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "prerequest",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.environment.set(\"checkout_key\", pm.variables.replaceIn(\"{{$guid}}\"));"
++                ]
++              }
++            },
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
++                  "pm.environment.set(\"payment_id\", pm.response.json().payment.id);",
++                  "pm.test(\"Harga server dan status pending\",()=>{const p=pm.response.json().payment;pm.expect(p.amount).to.eql(99000);pm.expect(p.status).to.eql(\"pending\");});"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "11 Ulang checkout yang sama tanpa invoice ganda",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              },
++              {
++                "key": "Idempotency-Key",
++                "value": "{{checkout_key}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/checkout",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"plan\": \"premium\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++                  "pm.test(\"Invoice sama\",()=>{const j=pm.response.json();pm.expect(String(j.payment.id)).to.eql(pm.environment.get(\"payment_id\").toString());pm.expect(j.replayed).to.eql(true);});"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "12 Lihat detail invoice pending",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/{{payment_id}}",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "13 Pending masih ditolak analitik",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "X-API-Key",
++                "value": "{{api_key}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/partner/analitik",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "14 Pelanggan tidak boleh konfirmasi pembayaran",
++          "request": {
++            "method": "PATCH",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/confirm",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"simulation\": true\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
++                ]
++              }
++            }
++          ]
 +        }
 +      ]
 +    },
 +    {
-+      "name": "18 Analitik setelah downgrade ditolak",
-+      "request": {
-+        "method": "GET",
-+        "header": [
-+          {
-+            "key": "X-API-Key",
-+            "value": "{{api_key}}"
-+          }
-+        ],
-+        "url": "{{base_url}}/api/v1/partner/analitik"
-+      },
-+      "event": [
++      "name": "2 Admin mengonfirmasi lalu pelanggan Premium",
++      "item": [
 +        {
-+          "listen": "test",
-+          "script": {
-+            "type": "text/javascript",
-+            "exec": [
-+              "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
-+            ]
-+          }
++          "name": "15 Login admin simulasi",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/auth/login",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"pengguna_nama\": \"admin\",\n  \"pengguna_password\": \"Admin123!\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++                  "pm.environment.set(\"admin_token\", pm.response.json().accessToken);"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "16 Admin melihat invoice pending",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{admin_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/admin/pending",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "17 Konfirmasi wajib mengakui simulasi",
++          "request": {
++            "method": "PATCH",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{admin_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/confirm",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "18 Konfirmasi pembayaran simulasi",
++          "request": {
++            "method": "PATCH",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{admin_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/confirm",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"simulation\": true\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++                  "pm.environment.set(\"first_end\", pm.response.json().subscription.ends_at);",
++                  "pm.test(\"Paid dan Premium aktif 30 hari\",()=>{const j=pm.response.json();pm.expect(j.payment.status).to.eql(\"paid\");pm.expect(j.api_level).to.eql(\"premium\");pm.expect(new Date(j.subscription.ends_at)-new Date(j.subscription.starts_at)).to.eql(30*86400000);});"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "19 Konfirmasi ulang tidak memperpanjang",
++          "request": {
++            "method": "PATCH",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{admin_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/confirm",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"simulation\": true\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++                  "pm.test(\"Tidak aktif dua kali\",()=>{const j=pm.response.json();pm.expect(j.replayed).to.eql(true);pm.expect(j.subscription.ends_at).to.eql(pm.environment.get(\"first_end\"));});"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "20 Pelanggan melihat subscription aktif",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/me",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "21 Pelanggan melihat paket dan sisa kuota",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/api-key/me",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "22 Key sama mengakses analitik Premium",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "X-API-Key",
++                "value": "{{api_key}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/partner/analitik",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++                ]
++              }
++            }
++          ]
++        }
++      ]
++    },
++    {
++      "name": "3 Perpanjangan dan pembatalan invoice",
++      "item": [
++        {
++          "name": "23 Checkout kedua untuk perpanjangan",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              },
++              {
++                "key": "Idempotency-Key",
++                "value": "{{renew_key}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/checkout",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"plan\": \"premium\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "prerequest",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.environment.set(\"renew_key\", pm.variables.replaceIn(\"{{$guid}}\"));"
++                ]
++              }
++            },
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
++                  "pm.environment.set(\"renew_id\", pm.response.json().payment.id);"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "24 Admin konfirmasi perpanjangan",
++          "request": {
++            "method": "PATCH",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{admin_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/{{renew_id}}/confirm",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"simulation\": true\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++                  "pm.test(\"Tambah 30 hari dari akhir periode\",()=>{const j=pm.response.json();pm.expect(new Date(j.subscription.ends_at)-new Date(pm.environment.get(\"first_end\"))).to.eql(30*86400000);});"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "25 Lihat subscription setelah perpanjangan",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/me",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "26 Riwayat invoice pelanggan",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "27 Buat invoice untuk dibatalkan",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              },
++              {
++                "key": "Idempotency-Key",
++                "value": "{{cancel_key}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/checkout",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"plan\": \"premium\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "prerequest",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.environment.set(\"cancel_key\", pm.variables.replaceIn(\"{{$guid}}\"));"
++                ]
++              }
++            },
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
++                  "pm.environment.set(\"cancel_id\", pm.response.json().payment.id);"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "28 Pelanggan membatalkan invoice pending",
++          "request": {
++            "method": "PATCH",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/{{cancel_id}}/cancel",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++                  "pm.test(\"Cancelled\",()=>pm.expect(pm.response.json().payment.status).to.eql(\"cancelled\"));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "29 Admin tidak dapat mengaktifkan invoice cancelled",
++          "request": {
++            "method": "PATCH",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{admin_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/{{cancel_id}}/confirm",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"simulation\": true\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
++                ]
++              }
++            }
++          ]
++        }
++      ]
++    },
++    {
++      "name": "4 Proteksi data dan rotasi key",
++      "item": [
++        {
++          "name": "30 Register pelanggan lain",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/auth/register",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"pengguna_nama\": \"{{other_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "prerequest",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.environment.set(\"other_user\",\"other\"+Date.now()+Math.floor(Math.random()*1000));"
++                ]
++              }
++            },
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "31 Login pelanggan lain",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/auth/login",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"pengguna_nama\": \"{{other_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++                  "pm.environment.set(\"other_token\", pm.response.json().accessToken);"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "32 Invoice orang lain tidak dapat dibaca",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{other_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/{{payment_id}}",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "33 Invoice orang lain tidak dapat dibatalkan",
++          "request": {
++            "method": "PATCH",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{other_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/cancel",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "34 Pelanggan tidak dapat mengubah tier langsung",
++          "request": {
++            "method": "PATCH",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"api_level\": \"premium\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "35 Jalur lama upgrade langsung dinonaktifkan",
++          "request": {
++            "method": "PATCH",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{admin_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"api_level\": \"premium\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 410\", () => pm.response.to.have.status(410));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "36 Data buku tanpa JWT ditolak",
++          "request": {
++            "method": "GET",
++            "header": [],
++            "url": "{{base_url}}/api/v1/buku",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "37 Data buku dengan JWT pelanggan ditolak",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/buku",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "38 Admin dapat mengelola sumber data buku",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{admin_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/buku",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "39 Regenerate API key pelanggan",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/api-key/regenerate",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++                  "pm.environment.set(\"old_api_key\",pm.environment.get(\"api_key\"));",
++                  "pm.environment.set(\"api_key\", pm.response.json().api_key);"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "40 Key lama ditolak",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "X-API-Key",
++                "value": "{{old_api_key}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/partner/ringkasan",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "41 Key baru tetap Premium",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "X-API-Key",
++                "value": "{{api_key}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/partner/analitik",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "42 Checkout tanpa key idempotensi ditolak",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/checkout",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"plan\": \"premium\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "43 Basic gratis tidak memerlukan checkout",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/checkout",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"plan\": \"basic\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "44 Paket tidak dikenal ditolak",
++          "request": {
++            "method": "POST",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              },
++              {
++                "key": "Content-Type",
++                "value": "application/json"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/subscriptions/checkout",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"plan\": \"gold\"\n}",
++              "options": {
++                "raw": {
++                  "language": "json"
++                }
++              }
++            }
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "45 Invoice tidak ditemukan",
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/2147483647",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
++                ]
++              }
++            }
++          ]
++        },
++        {
++          "name": "46 Invoice paid tidak dapat dibatalkan",
++          "request": {
++            "method": "PATCH",
++            "header": [
++              {
++                "key": "Authorization",
++                "value": "Bearer {{access_token}}"
++              }
++            ],
++            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/cancel",
++            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
++          },
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "type": "text/javascript",
++                "exec": [
++                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
++                ]
++              }
++            }
++          ]
 +        }
 +      ]
 +    }
 +  ]
 +}
---- /dev/null
-+++ b/postman/bookdata-local.postman_environment.json
-@@ -0,0 +1,48 @@
+--- W7/postman/bookdata-local.postman_environment.json
++++ BookData_2/postman/bookdata-local.postman_environment.json
+@@ -0,0 +1,101 @@
 +{
 +  "name": "BookData local",
 +  "values": [
@@ -1114,18 +1822,391 @@
 +      "value": "",
 +      "enabled": true,
 +      "type": "secret"
++    },
++    {
++      "key": "checkout_key",
++      "value": "",
++      "enabled": true,
++      "type": "default"
++    },
++    {
++      "key": "payment_id",
++      "value": "",
++      "enabled": true,
++      "type": "default"
++    },
++    {
++      "key": "first_end",
++      "value": "",
++      "enabled": true,
++      "type": "default"
++    },
++    {
++      "key": "renew_key",
++      "value": "",
++      "enabled": true,
++      "type": "default"
++    },
++    {
++      "key": "renew_id",
++      "value": "",
++      "enabled": true,
++      "type": "default"
++    },
++    {
++      "key": "cancel_key",
++      "value": "",
++      "enabled": true,
++      "type": "default"
++    },
++    {
++      "key": "cancel_id",
++      "value": "",
++      "enabled": true,
++      "type": "default"
++    },
++    {
++      "key": "other_user",
++      "value": "",
++      "enabled": true,
++      "type": "default"
++    },
++    {
++      "key": "other_token",
++      "value": "",
++      "enabled": true,
++      "type": "secret"
 +    }
-+  ],
-+  "_postman_variable_scope": "environment"
++  ]
 +}
---- a/postman/SOA-Minggu7.postman_collection.json
-+++ b/postman/SOA-Minggu7.postman_collection.json
-@@ -1553,7 +1553,7 @@
-                   "  pm.response.to.have.status(201);",
-                   "  const b = pm.response.json();",
-                   "  pm.expect(b).to.not.have.property('pengguna_password');",
--                  "  pm.expect(b).to.have.property('api_key');   // terbit untuk Minggu 8",
-+                  "  pm.expect(b).not.to.have.property('api_key'); // W8: key hanya dari generate",
-                   "  pm.expect(b.roles).to.eql('visitor');        // SELALU visitor",
-                   "  pm.expect(b.api_level).to.eql('basic'); // client tidak bisa memilih premium",
-                   "});"
+--- W7/scripts/create-test-db.js
++++ BookData_2/scripts/create-test-db.js
+@@ -0,0 +1,19 @@
++// Database pengujian TERPISAH. Hanya nama *_test boleh dipakai.
++require("dotenv").config();
++const mysql = require("mysql2/promise");
++const fs = require("node:fs");
++const path = require("node:path");
++async function main() {
++  const name = process.env.TEST_DB_NAME || "soa_bookdata_w8_test";
++  if (!/^[a-zA-Z0-9_]+_test$/.test(name)) throw new Error("TEST_DB_NAME harus berakhiran _test");
++  const conn = await mysql.createConnection({ host: process.env.DB_HOST || "127.0.0.1",
++    port: Number(process.env.DB_PORT) || 3306, user: process.env.DB_USER || "root",
++    password: process.env.DB_PASSWORD || "", multipleStatements: true });
++  try {
++    await conn.query(`CREATE DATABASE IF NOT EXISTS \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
++    await conn.query(`USE \`${name}\``);
++    for (const file of ["schema.sql", "seed.sql"]) await conn.query(fs.readFileSync(path.join(__dirname, "../sql", file), "utf8"));
++    console.log(`Database uji ${name} siap.`);
++  } finally { await conn.end(); }
++}
++main().catch((err) => { console.error(err.message); process.exitCode = 1; });
+--- W7/scripts/setup-env.js
++++ BookData_2/scripts/setup-env.js
+@@ -0,0 +1,12 @@
++// RAFAEL: membuat .env lokal sekali saja, tanpa menimpa konfigurasi lama.
++const fs = require("node:fs");
++const crypto = require("node:crypto");
++if (fs.existsSync(".env")) { console.log(".env sudah ada. Tidak ditimpa."); process.exit(0); }
++let text = fs.readFileSync(".env.example", "utf8");
++text = text.replace(/^ACCESS_TOKEN_SECRET=.*$/m,
++  `ACCESS_TOKEN_SECRET=${crypto.randomBytes(64).toString("hex")}`);
++text = text.replace(/^REFRESH_TOKEN_SECRET=.*$/m,
++  `REFRESH_TOKEN_SECRET=${crypto.randomBytes(64).toString("hex")}`);
++text = text.replace(/^DB_NAME=.*$/m, "DB_NAME=soa_bookdata_w8");
++fs.writeFileSync(".env", text, { mode: 0o600 });
++console.log(".env dibuat. Sesuaikan DB_HOST, DB_PORT, DB_USER dan DB_PASSWORD.");
+--- W7/src/controllers/partner.js
++++ BookData_2/src/controllers/partner.js
+@@ -0,0 +1,24 @@
++// RAFAEL: hasil dihitung dari data buku W7 yang sesungguhnya.
++const { Op } = require("sequelize");
++const { Buku, sequelize } = require("../models");
++const ringkasan = async (req, res) => {
++  const [row] = await Buku.findAll({ attributes: [
++    [sequelize.fn("COUNT", sequelize.col("id")), "total_judul"],
++    [sequelize.fn("SUM", sequelize.col("stok")), "total_stok"],
++    [sequelize.fn("AVG", sequelize.col("harga")), "rata_rata_harga"],
++  ], raw: true });
++  return res.json({ data: { total_judul: Number(row.total_judul), total_stok: Number(row.total_stok || 0),
++    rata_rata_harga: Math.round(Number(row.rata_rata_harga || 0)) } });
++};
++const analitik = async (req, res) => {
++  const kategori = await Buku.findAll({ attributes: ["kategori",
++    [sequelize.fn("COUNT", sequelize.col("id")), "total_judul"],
++    [sequelize.fn("SUM", sequelize.col("stok")), "total_stok"],
++  ], group: ["kategori"], order: [["kategori", "ASC"]], raw: true });
++  const stokRendah = await Buku.findAll({ where: { stok: { [Op.lte]: 5 } },
++    attributes: ["id", "judul", "stok"], order: [["stok", "ASC"], ["id", "ASC"]] });
++  return res.json({ data: { kategori: kategori.map((r) => ({ ...r,
++    total_judul: Number(r.total_judul), total_stok: Number(r.total_stok) })),
++    stok_rendah: stokRendah, ambang_stok_rendah: 5 } });
++};
++module.exports = { ringkasan, analitik };
+--- W7/src/databases/connection.js
++++ BookData_2/src/databases/connection.js
+@@ -27,6 +27,7 @@
+     host: process.env.DB_HOST || "127.0.0.1",
+     port: Number(process.env.DB_PORT) || 3306,
+     dialect: "mysql",
++    timezone: "+00:00",
+ 
+     // Pool — versi ORM dari konfigurasi pool Minggu 3.
+     pool: {
+@@ -46,7 +47,7 @@
+      *
+      * Setelah selesai belajar, ganti menjadi `logging: false`.
+      */
+-    logging: (sql) => console.log("[SQL]", sql),
++    logging: process.env.SQL_LOG === "true" ? (sql) => console.log("[SQL]", sql) : false,
+     // logging: false,
+ 
+     define: {
+--- W7/src/routes/billing.js
++++ BookData_2/src/routes/billing.js
+@@ -0,0 +1,20 @@
++const express = require('express');
++const c = require('../controllers/billing');
++const verifyJWT = require('../middlewares/verifyJWT');
++const checkRoles = require('../middlewares/checkRoles');
++const asyncHandler = require('../utils/asyncHandler');
++const methodNotAllowed = require('../middlewares/methodNotAllowed');
++const plansRouter = express.Router();
++const subscriptionRouter = express.Router();
++const paymentRouter = express.Router();
++plansRouter.route('/').get(c.plans).all(methodNotAllowed('GET'));
++subscriptionRouter.use(verifyJWT);
++subscriptionRouter.route('/checkout').post(asyncHandler(c.checkout)).all(methodNotAllowed('POST'));
++subscriptionRouter.route('/me').get(asyncHandler(c.me)).all(methodNotAllowed('GET'));
++paymentRouter.use(verifyJWT);
++paymentRouter.route('/').get(asyncHandler(c.myPayments)).all(methodNotAllowed('GET'));
++paymentRouter.route('/admin/pending').get(checkRoles('admin'), asyncHandler(c.pendingPayments)).all(methodNotAllowed('GET'));
++paymentRouter.route('/:id').get(asyncHandler(c.payment)).all(methodNotAllowed('GET'));
++paymentRouter.route('/:id/confirm').patch(checkRoles('admin'), asyncHandler(c.confirm)).all(methodNotAllowed('PATCH'));
++paymentRouter.route('/:id/cancel').patch(asyncHandler(c.cancel)).all(methodNotAllowed('PATCH'));
++module.exports = { plansRouter, subscriptionRouter, paymentRouter };
+--- W7/src/routes/index.js
++++ BookData_2/src/routes/index.js
+@@ -7,6 +7,9 @@
+ const axiosRouter = require("./contohAxios");
+ const authRouter = require("./auth");
+ const penggunaRouter = require("./pengguna");
++const apiKeyRouter = require("./apiKey");
++const partnerRouter = require("./partner");
++const { plansRouter, subscriptionRouter, paymentRouter } = require("./billing");
+ 
+ module.exports = {
+   contohRouter,
+@@ -14,4 +17,9 @@
+   axiosRouter,
+   authRouter,
+   penggunaRouter,
++  apiKeyRouter,
++  partnerRouter,
++  plansRouter,
++  subscriptionRouter,
++  paymentRouter,
+ };
+--- W7/src/routes/partner.js
++++ BookData_2/src/routes/partner.js
+@@ -0,0 +1,12 @@
++const router = require("express").Router();
++const asyncHandler = require("../utils/asyncHandler");
++const verifyApiKey = require("../middlewares/verifyApiKey");
++const checkApiLevel = require("../middlewares/checkApiLevel");
++const limitApiUsage = require("../middlewares/limitApiUsage");
++const { ringkasan, analitik } = require("../controllers/partner");
++// Cek fitur SEBELUM reservasi. Penolakan 401/403/429 tidak menghabiskan kuota.
++router.get("/ringkasan", asyncHandler(verifyApiKey), checkApiLevel("ringkasan"),
++  asyncHandler(limitApiUsage), asyncHandler(ringkasan));
++router.get("/analitik", asyncHandler(verifyApiKey), checkApiLevel("analitik"),
++  asyncHandler(limitApiUsage), asyncHandler(analitik));
++module.exports = router;
+--- W7/tests/api-key.integration.test.js
++++ BookData_2/tests/api-key.integration.test.js
+@@ -0,0 +1,185 @@
++// RAFAEL: integrasi HTTP dengan database test nyata, bukan mock pembayaran/kuota.
++require('dotenv').config();
++process.env.DB_NAME = process.env.TEST_DB_NAME || 'soa_bookdata_w8_test';
++if (!/^[a-zA-Z0-9_]+_test$/.test(process.env.DB_NAME)) throw Error('Database harus berakhiran _test');
++process.env.ACCESS_TOKEN_SECRET ||= 'a'.repeat(128);
++process.env.REFRESH_TOKEN_SECRET ||= 'b'.repeat(128);
++const { test, before, after } = require('node:test');
++const assert = require('node:assert/strict');
++const { once } = require('node:events');
++const crypto = require('node:crypto');
++const { sequelize, Pengguna, ApiLog, Payment, Subscription } = require('../src/models');
++const { databaseNow } = require('../src/services/clock');
++const { reserveUsage } = require('../src/services/apiUsage');
++const { hashApiKey } = require('../src/utils/apiKey');
++const app = require('../app');
++const DAY = 86400000;
++let server, base, adminToken, seq=0;
++const suffix = crypto.randomBytes(4).toString('hex');
++async function request(path,{method='GET',token,key,body,checkoutKey}={}) {
++  const headers={};
++  if(token)headers.Authorization=`Bearer ${token}`;
++  if(key)headers['X-API-Key']=key;
++  if(checkoutKey)headers['Idempotency-Key']=checkoutKey;
++  if(body!==undefined)headers['Content-Type']='application/json';
++  const r=await fetch(base+'/api/v1'+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body)});
++  return {status:r.status,body:await r.json(),headers:r.headers};
++}
++async function account(key=true) {
++  const credentials={pengguna_nama:`t${suffix}${++seq}`,pengguna_password:'Tester123!'};
++  const reg=await request('/auth/register',{method:'POST',body:credentials});assert.equal(reg.status,201);
++  const login=await request('/auth/login',{method:'POST',body:credentials});assert.equal(login.status,200);
++  const u={id:reg.body.id,token:login.body.accessToken,registered:reg.body};
++  if(key){const r=await request('/api-key/generate',{method:'POST',token:u.token});assert.equal(r.status,201);u.key=r.body.api_key;}
++  return u;
++}
++const partner=(u,feature='ringkasan')=>request('/partner/'+feature,{key:u.key});
++const checkout=(u,checkoutKey=crypto.randomUUID())=>request('/subscriptions/checkout',{
++  method:'POST',token:u.token,checkoutKey,body:{plan:'premium'}});
++const confirm=id=>request(`/payments/${id}/confirm`,{method:'PATCH',token:adminToken,body:{simulation:true}});
++async function premium(u){const bill=await checkout(u);assert.equal(bill.status,201);const paid=await confirm(bill.body.payment.id);assert.equal(paid.status,200);return paid.body;}
++before(async()=>{
++  await sequelize.authenticate();server=app.listen(0,'127.0.0.1');await once(server,'listening');
++  base=`http://127.0.0.1:${server.address().port}`;
++  const r=await request('/auth/login',{method:'POST',body:{pengguna_nama:'admin',pengguna_password:'Admin123!'}});
++  assert.equal(r.status,200);adminToken=r.body.accessToken;
++});
++after(async()=>{if(server)await new Promise(resolve=>server.close(resolve));await sequelize.close();});
++test('Subscription BookData: alur bisnis, keamanan, masa aktif dan request bersamaan',async t=>{
++  const u=await account();let invoice,firstEnd;
++  await t.test('registrasi Basic tidak membocorkan hash/key',()=>{
++    assert.equal(u.registered.api_level,'basic');assert.equal(u.registered.api_key,undefined);assert.equal(u.registered.pengguna_password,undefined);
++  });
++  await t.test('katalog berisi harga, 30 hari dan fitur paket',async()=>{
++    const r=await request('/plans');assert.equal(r.status,200);assert.equal(r.body.payment_mode,'simulation');
++    const [b,p]=r.body.data;assert.equal(b.price,0);assert.equal(b.duration_days,null);assert.equal(p.price,99000);assert.equal(p.duration_days,30);assert.ok(p.features.includes('analitik'));
++  });
++  await t.test('key acak hanya tersimpan sebagai SHA-256',async()=>{
++    assert.match(u.key,/^bd_live_[a-f0-9]{64}$/);assert.equal((await Pengguna.unscoped().findByPk(u.id)).api_key,hashApiKey(u.key));
++  });
++  await t.test('generate memerlukan JWT dan kedua kalinya ditolak',async()=>{
++    assert.equal((await request('/api-key/generate',{method:'POST'})).status,401);
++    assert.equal((await request('/api-key/generate',{method:'POST',token:u.token})).status,409);
++  });
++  await t.test('dua generate bersamaan menerbitkan satu key',async()=>{
++    const a=await account(false);const rs=await Promise.all([1,2].map(()=>request('/api-key/generate',{method:'POST',token:a.token})));
++    assert.deepEqual(rs.map(r=>r.status).sort(),[201,409]);
++  });
++  await t.test('key hilang/salah dan JWT saja ditolak partner',async()=>{
++    for(const options of [{},{key:'bd_live_'+'0'.repeat(64)},{token:u.token}])assert.equal((await request('/partner/ringkasan',options)).status,401);
++  });
++  await t.test('Basic menerima agregasi seed dan sisa kuota 99',async()=>{
++    const r=await partner(u);assert.equal(r.status,200);assert.deepEqual(r.body.data,{total_judul:5,total_stok:49,rata_rata_harga:98200});assert.equal(r.headers.get('x-daily-remaining'),'99');
++  });
++  await t.test('Basic ditolak analitik tanpa mengurangi kuota',async()=>{
++    const n=await ApiLog.count({where:{pengguna_id:u.id}});assert.equal((await partner(u,'analitik')).status,403);assert.equal(await ApiLog.count({where:{pengguna_id:u.id}}),n);
++  });
++  await t.test('checkout wajib JWT',async()=>{
++    assert.equal((await request('/subscriptions/checkout',{method:'POST',checkoutKey:crypto.randomUUID(),body:{plan:'premium'}})).status,401);
++  });
++  await t.test('pelanggan tidak dapat memalsukan harga/status/tier/field lain',async()=>{
++    for(const body of [{plan:'premium',amount:1},{plan:'premium',status:'paid'},{plan:'gold'},{plan:'basic'},{plan:'premium',roles:'admin'},['premium']])assert.equal((await request('/subscriptions/checkout',{method:'POST',token:u.token,checkoutKey:crypto.randomUUID(),body})).status,400);
++  });
++  await t.test('checkout wajib header idempotensi',async()=>{
++    assert.equal((await request('/subscriptions/checkout',{method:'POST',token:u.token,body:{plan:'premium'}})).status,400);
++  });
++  await t.test('checkout menghasilkan invoice pending 99000 untuk 30 hari',async()=>{
++    const r=await checkout(u);assert.equal(r.status,201);invoice=r.body.payment;assert.equal(invoice.status,'pending');assert.equal(invoice.amount,99000);assert.equal(invoice.billing_days,30);
++  });
++  await t.test('pending belum memberi hak Premium',async()=>{
++    assert.equal((await request('/subscriptions/me',{token:u.token})).body.api_level,'basic');assert.equal((await partner(u,'analitik')).status,403);
++  });
++  await t.test('checkout diulang mengembalikan invoice yang sama',async()=>{
++    const key=crypto.randomUUID(),a=await checkout(u,key),b=await checkout(u,key);assert.equal(b.status,200);assert.equal(b.body.replayed,true);assert.equal(a.body.payment.id,b.body.payment.id);
++  });
++  await t.test('enam checkout paralel satu key hanya membuat satu invoice',async()=>{
++    const a=await account(),key=crypto.randomUUID();const rs=await Promise.all(Array.from({length:6},()=>checkout(a,key)));
++    assert.equal(rs.filter(r=>r.status===201).length,1);assert.equal(rs.filter(r=>r.status===200).length,5);assert.equal(new Set(rs.map(r=>String(r.body.payment.id))).size,1);assert.equal(await Payment.count({where:{pengguna_id:a.id}}),1);
++  });
++  await t.test('pelanggan tidak dapat mengonfirmasi pembayaran',async()=>{
++    assert.equal((await request(`/payments/${invoice.id}/confirm`,{method:'PATCH',token:u.token,body:{simulation:true}})).status,403);
++  });
++  await t.test('invoice orang lain tidak dapat dilihat atau dibatalkan',async()=>{
++    const a=await account();assert.equal((await request(`/payments/${invoice.id}`,{token:a.token})).status,404);assert.equal((await request(`/payments/${invoice.id}/cancel`,{method:'PATCH',token:a.token})).status,404);assert.equal((await request('/payments',{token:a.token})).body.total,0);
++  });
++  await t.test('daftar pending hanya admin dan pagination dibatasi',async()=>{
++    assert.equal((await request('/payments/admin/pending',{token:u.token})).status,403);
++    const r=await request('/payments/admin/pending',{token:adminToken});assert.equal(r.status,200);assert.ok(r.body.data.every(p=>p.status==='pending'));
++    assert.equal((await request('/payments?limit=101',{token:u.token})).status,400);
++  });
++  await t.test('konfirmasi mewajibkan pengakuan simulasi',async()=>{
++    assert.equal((await request(`/payments/${invoice.id}/confirm`,{method:'PATCH',token:adminToken,body:{}})).status,400);
++  });
++  await t.test('konfirmasi atomik mengaktifkan Premium tepat 30 hari',async()=>{
++    const r=await confirm(invoice.id);assert.equal(r.status,200);assert.equal(r.body.api_level,'premium');assert.equal(r.body.payment.status,'paid');assert.ok(r.body.payment.confirmed_by);assert.equal(r.body.replayed,false);assert.equal(+new Date(r.body.subscription.ends_at)-+new Date(r.body.subscription.starts_at),30*DAY);firstEnd=r.body.subscription.ends_at;
++  });
++  await t.test('key yang sama mendapat analitik setelah pembayaran',async()=>{
++    const r=await partner(u,'analitik');assert.equal(r.status,200);assert.equal(r.headers.get('x-api-level'),'premium');assert.equal(r.body.data.stok_rendah.length,2);
++  });
++  await t.test('konfirmasi ulang tidak memperpanjang periode',async()=>{
++    const r=await confirm(invoice.id);assert.equal(r.body.replayed,true);assert.equal(r.body.subscription.ends_at,firstEnd);
++  });
++  await t.test('konfirmasi paralel satu invoice mengaktifkan sekali',async()=>{
++    const a=await account(),bill=await checkout(a);const rs=await Promise.all(Array.from({length:6},()=>confirm(bill.body.payment.id)));
++    assert.ok(rs.every(r=>r.status===200));assert.equal(rs.filter(r=>!r.body.replayed).length,1);const s=await Subscription.findOne({where:{pengguna_id:a.id}});assert.equal(+s.ends_at-+s.starts_at,30*DAY);
++  });
++  await t.test('dua invoice berbeda dikonfirmasi paralel memberi 60 hari',async()=>{
++    const a=await account(),x=await checkout(a),y=await checkout(a);const rs=await Promise.all([confirm(x.body.payment.id),confirm(y.body.payment.id)]);assert.ok(rs.every(r=>r.status===200));const s=await Subscription.findOne({where:{pengguna_id:a.id}});assert.equal(+s.ends_at-+s.starts_at,60*DAY);
++  });
++  await t.test('renewal menambah 30 hari dari akhir periode aktif',async()=>{
++    const bill=await checkout(u),r=await confirm(bill.body.payment.id);assert.equal(+new Date(r.body.subscription.ends_at)-+new Date(firstEnd),30*DAY);assert.equal(r.body.payment.period_start,firstEnd);
++  });
++  await t.test('api-key/me menampilkan subscription tanpa kebocoran kredensial',async()=>{
++    const r=await request('/api-key/me',{token:u.token});assert.equal(r.body.api_level,'premium');assert.equal(r.body.subscription.status,'active');assert.equal(r.body.has_api_key,true);assert.ok(!JSON.stringify(r.body).includes(u.key));assert.ok(!JSON.stringify(r.body).includes(hashApiKey(u.key)));
++  });
++  await t.test('subscription expired otomatis menolak analitik dan kembali Basic',async()=>{
++    const now=await databaseNow();await Subscription.update({ends_at:new Date(+now-1),status:'active'},{where:{pengguna_id:u.id}});assert.equal((await partner(u,'analitik')).status,403);
++    const r=await request('/subscriptions/me',{token:u.token});assert.equal(r.body.api_level,'basic');assert.equal(r.body.subscription.status,'expired');assert.equal((await Pengguna.findByPk(u.id)).api_level,'basic');
++  });
++  await t.test('reservasi memeriksa ulang subscription setelah lock',async()=>{
++    assert.equal((await reserveUsage(u.id,hashApiKey(u.key),'analitik','/fixture','GET')).error,403);
++  });
++  await t.test('cache api_level saja tidak memberikan Premium',async()=>{
++    const a=await account();await Pengguna.update({api_level:'premium'},{where:{id:a.id}});assert.equal((await partner(a,'analitik')).status,403);assert.equal((await Pengguna.findByPk(a.id)).api_level,'basic');
++  });
++  await t.test('pembelian setelah expired memulai 30 hari dari sekarang',async()=>{
++    const r=await premium(u);assert.equal(r.api_level,'premium');assert.equal(+new Date(r.subscription.ends_at)-+new Date(r.subscription.starts_at),30*DAY);
++  });
++  await t.test('cancel pending idempotent dan invoice tidak bisa dikonfirmasi',async()=>{
++    const bill=await checkout(u),path=`/payments/${bill.body.payment.id}/cancel`;
++    assert.equal((await request(path,{method:'PATCH',token:u.token})).body.payment.status,'cancelled');assert.equal((await request(path,{method:'PATCH',token:u.token})).body.replayed,true);assert.equal((await confirm(bill.body.payment.id)).status,409);
++  });
++  await t.test('paid tidak dapat dibatalkan',async()=>{
++    assert.equal((await request(`/payments/${invoice.id}/cancel`,{method:'PATCH',token:u.token})).status,409);
++  });
++  await t.test('invoice expired tidak bisa diaktifkan',async()=>{
++    const bill=await checkout(u),now=await databaseNow();await Payment.update({expires_at:new Date(+now-1)},{where:{id:bill.body.payment.id}});assert.equal((await confirm(bill.body.payment.id)).status,409);assert.equal((await request(`/payments/${bill.body.payment.id}`,{token:u.token})).body.payment.status,'expired');
++  });
++  await t.test('konfirmasi paid lama tidak mengaktifkan ulang setelah expired',async()=>{
++    const a=await account(),r=await premium(a),now=await databaseNow();await Subscription.update({ends_at:new Date(+now-1)},{where:{pengguna_id:a.id}});const again=await confirm(r.payment.id);assert.equal(again.body.replayed,true);assert.equal(again.body.api_level,'basic');
++  });
++  await t.test('upgrade langsung ditutup bagi pelanggan dan admin',async()=>{
++    assert.equal((await request(`/api-key/level/${u.id}`,{method:'PATCH',token:u.token,body:{api_level:'premium'}})).status,403);assert.equal((await request(`/api-key/level/${u.id}`,{method:'PATCH',token:adminToken,body:{api_level:'premium'}})).status,410);
++  });
++  await t.test('CRUD buku sumber memerlukan JWT admin',async()=>{
++    assert.equal((await request('/buku')).status,401);assert.equal((await request('/buku',{key:u.key})).status,401);assert.equal((await request('/buku',{token:u.token})).status,403);assert.equal((await request('/buku',{token:adminToken})).status,200);
++  });
++  await t.test('regenerate mencabut key lama tanpa reset subscription/kuota',async()=>{
++    const n=await ApiLog.count({where:{pengguna_id:u.id}}),r=await request('/api-key/regenerate',{method:'POST',token:u.token});assert.equal(r.status,200);assert.equal((await partner(u)).status,401);u.key=r.body.api_key;assert.equal((await partner(u,'analitik')).status,200);assert.equal(await ApiLog.count({where:{pengguna_id:u.id}}),n+1);
++  });
++  await t.test('Basic menerima tepat 10 dari 11 request paralel',async()=>{
++    const a=await account(),now=await databaseNow(),remaining=60000-(+now%60000);if(remaining<2500)await new Promise(resolve=>setTimeout(resolve,remaining+20));const rs=await Promise.all(Array.from({length:11},()=>partner(a)));assert.equal(rs.filter(r=>r.status===200).length,10);assert.equal(rs.filter(r=>r.status===429).length,1);assert.equal(await ApiLog.count({where:{pengguna_id:a.id}}),10);
++  });
++  await t.test('kuota harian Basic maksimal 100 request',async()=>{
++    const a=await account(),day=await databaseNow();day.setUTCHours(0,0,0,0);await ApiLog.bulkCreate(Array.from({length:100},()=>({pengguna_id:a.id,endpoint:'/fixture',http_method:'GET',createdAt:day})));const r=await partner(a);assert.equal(r.status,429);assert.equal(r.body.code,'DAILY_QUOTA_EXCEEDED');
++  });
++  await t.test('Premium hasil pembelian menerima lebih dari 10 request per menit',async()=>{
++    const a=await account();await premium(a);const rs=await Promise.all(Array.from({length:12},()=>partner(a)));assert.ok(rs.every(r=>r.status===200));
++  });
++  await t.test('log merekam status respons tanpa menyimpan key',async()=>{
++    let rows=[];for(let i=0;i<40;i++){rows=await ApiLog.findAll({where:{pengguna_id:u.id},raw:true});if(rows.every(r=>r.status_code!==null))break;await new Promise(resolve=>setTimeout(resolve,25));}assert.ok(rows.length>0);assert.ok(rows.every(r=>r.status_code===200));assert.ok(!JSON.stringify(rows).includes(u.key));
++  });
++  await t.test('UUID W7 yang di-hash tetap dapat dipakai',async()=>{
++    const a=await account(false),raw=crypto.randomUUID();await Pengguna.update({api_key:hashApiKey(raw)},{where:{id:a.id}});assert.equal((await request('/partner/ringkasan',{key:raw})).status,200);
++  });
++});

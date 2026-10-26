@@ -30,6 +30,8 @@ module.exports = (sequelize, DataTypes) => {
      */
     static associate(models) {
       Pengguna.hasMany(models.ApiLog, { foreignKey: "pengguna_id", as: "apiLogs" });
+      Pengguna.hasMany(models.Payment, { foreignKey: "pengguna_id", as: "payments" });
+      Pengguna.hasOne(models.Subscription, { foreignKey: "pengguna_id", as: "subscription" });
     }
   }
 

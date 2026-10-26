@@ -1,531 +1,1510 @@
 {
   "info": {
-    "name": "BookData W8 API Key - Demo berurutan",
-    "description": "Jalankan Runner berurutan dalam <30 detik. Access JWT W7 hanya 30 detik; login ulang jika manual. Tidak mengirim pesan ke layanan luar.",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "name": "BookData W8 — Subscription Lengkap",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Jalankan semua folder berurutan. Premium Rp99.000/30 hari. Pembayaran simulasi admin, tanpa debit uang. Expiry diuji otomatis di npm test menggunakan fixture database, tanpa endpoint backdoor."
   },
   "item": [
     {
-      "name": "01 Register pelanggan acak",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/auth/register",
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"pengguna_nama\": \"{{demo_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
-          "options": {
-            "raw": {
-              "language": "json"
-            }
-          }
-        }
-      },
-      "event": [
+      "name": "1 Pelanggan Basic dan checkout",
+      "item": [
         {
-          "listen": "prerequest",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.environment.set(\"demo_user\", \"demo\"+Date.now()+Math.floor(Math.random()*1000));"
-            ]
-          }
+          "name": "01 Lihat paket dan harga",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/v1/plans",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Premium 99000 untuk 30 hari\",()=>{const p=pm.response.json().data.find(p=>p.id===\"premium\");pm.expect(p.price).to.eql(99000);pm.expect(p.duration_days).to.eql(30);});"
+                ]
+              }
+            }
+          ]
         },
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
-              "pm.environment.set(\"user_id\", pm.response.json().id);",
-              "pm.test(\"Rahasia tidak bocor\",()=>{const j=pm.response.json(); pm.expect(j).not.to.have.property(\"api_key\"); pm.expect(j).not.to.have.property(\"pengguna_password\");});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "02 Login pelanggan",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/auth/login",
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"pengguna_nama\": \"{{demo_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "name": "02 Register pelanggan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/register",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pengguna_nama\": \"{{demo_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
-          }
-        }
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-              "pm.environment.set(\"access_token\", pm.response.json().accessToken);"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "03 Generate key",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{access_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/api-key/generate"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
-              "pm.environment.set(\"api_key\", pm.response.json().api_key);"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "04 Generate kedua ditolak",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{access_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/api-key/generate"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "05 Partner tanpa key ditolak",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/api/v1/partner/ringkasan"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "06 Basic mendapat ringkasan",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "X-API-Key",
-            "value": "{{api_key}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/partner/ringkasan"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-              "pm.test(\"Sisa harian 99\",()=>pm.expect(pm.response.headers.get(\"X-Daily-Remaining\")).to.eql(\"99\"));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "07 Basic ditolak analitik",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "X-API-Key",
-            "value": "{{api_key}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/partner/analitik"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "08 Visitor tidak dapat upgrade sendiri",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
           },
-          {
-            "key": "Authorization",
-            "value": "Bearer {{access_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"api_level\": \"premium\"\n}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set(\"demo_user\", \"buyer\"+Date.now()+Math.floor(Math.random()*1000));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "pm.environment.set(\"user_id\", pm.response.json().id);",
+                  "pm.test(\"Basic tanpa rahasia\",()=>{const j=pm.response.json();pm.expect(j.api_level).to.eql(\"basic\");pm.expect(j).not.to.have.property(\"api_key\");pm.expect(j).not.to.have.property(\"pengguna_password\");});"
+                ]
+              }
             }
-          }
-        }
-      },
-      "event": [
+          ]
+        },
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "09 Login admin demo",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/auth/login",
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"pengguna_nama\": \"admin\",\n  \"pengguna_password\": \"Admin123!\"\n}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "name": "03 Login pelanggan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/login",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pengguna_nama\": \"{{demo_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
-          }
-        }
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-              "pm.environment.set(\"admin_token\", pm.response.json().accessToken);"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "10 Admin mengaktifkan Premium",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
           },
-          {
-            "key": "Authorization",
-            "value": "Bearer {{admin_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"api_level\": \"premium\"\n}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.environment.set(\"access_token\", pm.response.json().accessToken);"
+                ]
+              }
             }
-          }
-        }
-      },
-      "event": [
+          ]
+        },
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "11 Premium mengakses analitik",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "X-API-Key",
-            "value": "{{api_key}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/partner/analitik"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "12 Ringkasan pemakaian",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{access_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/api-key/me"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-              "pm.test(\"Paket Premium\",()=>pm.expect(pm.response.json().api_level).to.eql(\"premium\"));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "13 Regenerate key",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{access_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/api-key/regenerate"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-              "pm.environment.set(\"old_api_key\", pm.environment.get(\"api_key\"));",
-              "pm.environment.set(\"api_key\", pm.response.json().api_key);"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "14 Key lama dicabut",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "X-API-Key",
-            "value": "{{old_api_key}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/partner/ringkasan"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "15 Key baru berhasil",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "X-API-Key",
-            "value": "{{api_key}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/partner/ringkasan"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "16 Paket tidak dikenal ditolak",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
+          "name": "04 Subscription awal Basic",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/me",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
           },
-          {
-            "key": "Authorization",
-            "value": "Bearer {{admin_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"api_level\": \"gold\"\n}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Belum berlangganan\",()=>pm.expect(pm.response.json().api_level).to.eql(\"basic\"));"
+                ]
+              }
             }
-          }
-        }
-      },
-      "event": [
+          ]
+        },
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "17 Admin downgrade ke Basic",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
+          "name": "05 Generate API key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/api-key/generate",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
           },
-          {
-            "key": "Authorization",
-            "value": "Bearer {{admin_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"api_level\": \"basic\"\n}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "pm.environment.set(\"api_key\", pm.response.json().api_key);"
+                ]
+              }
             }
-          }
-        }
-      },
-      "event": [
+          ]
+        },
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
-            ]
-          }
+          "name": "06 Basic memakai ringkasan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/partner/ringkasan",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 Basic ditolak analitik",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/partner/analitik",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 Checkout tanpa JWT ditolak",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/checkout",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"premium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 Harga dari pelanggan ditolak",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/checkout",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"premium\",\n  \"amount\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 Checkout Premium membuat invoice pending",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{checkout_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/checkout",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"premium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set(\"checkout_key\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "pm.environment.set(\"payment_id\", pm.response.json().payment.id);",
+                  "pm.test(\"Harga server dan status pending\",()=>{const p=pm.response.json().payment;pm.expect(p.amount).to.eql(99000);pm.expect(p.status).to.eql(\"pending\");});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11 Ulang checkout yang sama tanpa invoice ganda",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{checkout_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/checkout",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"premium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Invoice sama\",()=>{const j=pm.response.json();pm.expect(String(j.payment.id)).to.eql(pm.environment.get(\"payment_id\").toString());pm.expect(j.replayed).to.eql(true);});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12 Lihat detail invoice pending",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/{{payment_id}}",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "13 Pending masih ditolak analitik",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/partner/analitik",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "14 Pelanggan tidak boleh konfirmasi pembayaran",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/confirm",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"simulation\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "18 Analitik setelah downgrade ditolak",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "X-API-Key",
-            "value": "{{api_key}}"
-          }
-        ],
-        "url": "{{base_url}}/api/v1/partner/analitik"
-      },
-      "event": [
+      "name": "2 Admin mengonfirmasi lalu pelanggan Premium",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
-            ]
-          }
+          "name": "15 Login admin simulasi",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/login",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pengguna_nama\": \"admin\",\n  \"pengguna_password\": \"Admin123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.environment.set(\"admin_token\", pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "16 Admin melihat invoice pending",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/admin/pending",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "17 Konfirmasi wajib mengakui simulasi",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/confirm",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "18 Konfirmasi pembayaran simulasi",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/confirm",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"simulation\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.environment.set(\"first_end\", pm.response.json().subscription.ends_at);",
+                  "pm.test(\"Paid dan Premium aktif 30 hari\",()=>{const j=pm.response.json();pm.expect(j.payment.status).to.eql(\"paid\");pm.expect(j.api_level).to.eql(\"premium\");pm.expect(new Date(j.subscription.ends_at)-new Date(j.subscription.starts_at)).to.eql(30*86400000);});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "19 Konfirmasi ulang tidak memperpanjang",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/confirm",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"simulation\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Tidak aktif dua kali\",()=>{const j=pm.response.json();pm.expect(j.replayed).to.eql(true);pm.expect(j.subscription.ends_at).to.eql(pm.environment.get(\"first_end\"));});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "20 Pelanggan melihat subscription aktif",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/me",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "21 Pelanggan melihat paket dan sisa kuota",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/api-key/me",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "22 Key sama mengakses analitik Premium",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/partner/analitik",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3 Perpanjangan dan pembatalan invoice",
+      "item": [
+        {
+          "name": "23 Checkout kedua untuk perpanjangan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{renew_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/checkout",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"premium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set(\"renew_key\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "pm.environment.set(\"renew_id\", pm.response.json().payment.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "24 Admin konfirmasi perpanjangan",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/{{renew_id}}/confirm",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"simulation\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Tambah 30 hari dari akhir periode\",()=>{const j=pm.response.json();pm.expect(new Date(j.subscription.ends_at)-new Date(pm.environment.get(\"first_end\"))).to.eql(30*86400000);});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "25 Lihat subscription setelah perpanjangan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/me",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "26 Riwayat invoice pelanggan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "27 Buat invoice untuk dibatalkan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{cancel_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/checkout",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"premium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set(\"cancel_key\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "pm.environment.set(\"cancel_id\", pm.response.json().payment.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "28 Pelanggan membatalkan invoice pending",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/{{cancel_id}}/cancel",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Cancelled\",()=>pm.expect(pm.response.json().payment.status).to.eql(\"cancelled\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "29 Admin tidak dapat mengaktifkan invoice cancelled",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/{{cancel_id}}/confirm",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"simulation\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4 Proteksi data dan rotasi key",
+      "item": [
+        {
+          "name": "30 Register pelanggan lain",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/register",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pengguna_nama\": \"{{other_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set(\"other_user\",\"other\"+Date.now()+Math.floor(Math.random()*1000));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "31 Login pelanggan lain",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/login",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pengguna_nama\": \"{{other_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.environment.set(\"other_token\", pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "32 Invoice orang lain tidak dapat dibaca",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{other_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/{{payment_id}}",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "33 Invoice orang lain tidak dapat dibatalkan",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{other_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/cancel",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "34 Pelanggan tidak dapat mengubah tier langsung",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"api_level\": \"premium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "35 Jalur lama upgrade langsung dinonaktifkan",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"api_level\": \"premium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 410\", () => pm.response.to.have.status(410));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "36 Data buku tanpa JWT ditolak",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/v1/buku",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "37 Data buku dengan JWT pelanggan ditolak",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/buku",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "38 Admin dapat mengelola sumber data buku",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/buku",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "39 Regenerate API key pelanggan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/api-key/regenerate",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.environment.set(\"old_api_key\",pm.environment.get(\"api_key\"));",
+                  "pm.environment.set(\"api_key\", pm.response.json().api_key);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "40 Key lama ditolak",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{old_api_key}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/partner/ringkasan",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "41 Key baru tetap Premium",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/partner/analitik",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "42 Checkout tanpa key idempotensi ditolak",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/checkout",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"premium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "43 Basic gratis tidak memerlukan checkout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/checkout",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"basic\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "44 Paket tidak dikenal ditolak",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/subscriptions/checkout",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"gold\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "45 Invoice tidak ditemukan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/2147483647",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "46 Invoice paid tidak dapat dibatalkan",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/payments/{{payment_id}}/cancel",
+            "description": "BookData subscription. Pembayaran adalah simulasi admin, tanpa debit uang sungguhan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
         }
       ]
     }

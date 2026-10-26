@@ -1,20 +1,5 @@
---- /dev/null
-+++ b/src/middlewares/verifyApiKey.js
-@@ -0,0 +1,12 @@
-+const { Pengguna } = require("../models");
-+const { hashApiKey, isApiKey } = require("../utils/apiKey");
-+module.exports = async (req, res, next) => {
-+  const rawKey = req.get("X-API-Key");
-+  if (!isApiKey(rawKey)) return res.status(401).json({ code: "INVALID_API_KEY" });
-+  const keyHash = hashApiKey(rawKey);
-+  const user = await Pengguna.unscoped().findOne({ where: { api_key: keyHash },
-+    attributes: ["id", "api_level"] });
-+  if (!user) return res.status(401).json({ code: "INVALID_API_KEY" });
-+  req.apiClient = { id: user.id, level: user.api_level, keyHash };
-+  next();
-+};
---- /dev/null
-+++ b/src/middlewares/checkApiLevel.js
+--- W7/src/middlewares/checkApiLevel.js
++++ BookData_2/src/middlewares/checkApiLevel.js
 @@ -0,0 +1,9 @@
 +const { API_PLANS } = require("../config/apiPlans");
 +module.exports = (feature) => (req, res, next) => {
@@ -25,8 +10,8 @@
 +  req.apiFeature = feature;
 +  next();
 +};
---- /dev/null
-+++ b/src/middlewares/limitApiUsage.js
+--- W7/src/middlewares/limitApiUsage.js
++++ BookData_2/src/middlewares/limitApiUsage.js
 @@ -0,0 +1,24 @@
 +const { reserveUsage } = require("../services/apiUsage");
 +const { ApiLog } = require("../models");
@@ -52,23 +37,38 @@
 +  res.once("close", () => record(res.writableFinished ? res.statusCode : 499));
 +  next();
 +};
---- /dev/null
-+++ b/src/services/apiUsage.js
-@@ -0,0 +1,53 @@
+--- W7/src/middlewares/verifyApiKey.js
++++ BookData_2/src/middlewares/verifyApiKey.js
+@@ -0,0 +1,15 @@
++const { Pengguna } = require("../models");
++const { subscriptionMe } = require("../services/billing");
++const { hashApiKey, isApiKey } = require("../utils/apiKey");
++module.exports = async (req, res, next) => {
++  const rawKey = req.get("X-API-Key");
++  if (!isApiKey(rawKey)) return res.status(401).json({ code: "INVALID_API_KEY" });
++  const keyHash = hashApiKey(rawKey);
++  const user = await Pengguna.unscoped().findOne({ where: { api_key: keyHash },
++    attributes: ["id", "api_level"] });
++  if (!user) return res.status(401).json({ code: "INVALID_API_KEY" });
++  const state = await subscriptionMe(user.id);
++  if (!state) return res.status(401).json({ code: "INVALID_API_KEY" });
++  req.apiClient = { id: user.id, level: state.api_level, keyHash };
++  next();
++};
+--- W7/src/services/apiUsage.js
++++ BookData_2/src/services/apiUsage.js
+@@ -0,0 +1,51 @@
 +// DANA: kuota per PENGGUNA, sehingga regenerasi key tidak mereset penggunaan.
-+const { Op, Transaction, QueryTypes } = require("sequelize");
++const { Op, Transaction } = require("sequelize");
 +const { sequelize, Pengguna, ApiLog } = require("../models");
++const { databaseNow } = require("./clock");
++const { effectiveSubscription } = require("./billing");
 +const { API_PLANS } = require("../config/apiPlans");
 +function windows(now) {
 +  const day = new Date(now); day.setUTCHours(0, 0, 0, 0);
 +  const minute = new Date(now); minute.setUTCSeconds(0, 0);
 +  return { day, minute, dayReset: new Date(+day + 86400000),
 +    minuteReset: new Date(+minute + 60000) };
-+}
-+async function databaseNow(transaction) {
-+  const [row] = await sequelize.query("SELECT UTC_TIMESTAMP(3) AS now", {
-+    type: QueryTypes.SELECT, transaction });
-+  return new Date(row.now);
 +}
 +async function counts(penggunaId, range, transaction) {
 +  const daily = await ApiLog.count({ where: { pengguna_id: penggunaId,
@@ -91,9 +91,10 @@
 +        transaction, lock: transaction.LOCK.UPDATE });
 +      // Cek ulang setelah lock untuk menangani rotasi key / perubahan paket.
 +      if (!user || user.api_key !== keyHash) return { error: 401, code: "INVALID_API_KEY" };
-+      const plan = API_PLANS[user.api_level];
-+      if (!plan || !plan.features.includes(feature)) return { error: 403, code: "PLAN_FORBIDDEN" };
 +      const now = await databaseNow(transaction);
++      const state = await effectiveSubscription(user, now, transaction);
++      const plan = API_PLANS[state.api_level];
++      if (!plan || !plan.features.includes(feature)) return { error: 403, code: "PLAN_FORBIDDEN" };
 +      const range = windows(now);
 +      const used = await counts(user.id, range, transaction);
 +      if (used.daily >= plan.dailyLimit) return { error: 429, code: "DAILY_QUOTA_EXCEEDED",
@@ -108,3 +109,15 @@
 +    });
 +}
 +module.exports = { windows, snapshot, reserveUsage };
+--- W7/src/services/clock.js
++++ BookData_2/src/services/clock.js
+@@ -0,0 +1,9 @@
++const { QueryTypes } = require('sequelize');
++const { sequelize } = require('../models');
++async function databaseNow(transaction) {
++  const [row] = await sequelize.query('SELECT UTC_TIMESTAMP(3) AS now', {
++    type: QueryTypes.SELECT, transaction,
++  });
++  return new Date(row.now);
++}
++module.exports = { databaseNow };

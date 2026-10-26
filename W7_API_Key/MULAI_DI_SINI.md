@@ -1,41 +1,20 @@
-# BookData API — W7 dan Business Model API Key
+# Mulai di sini — BookData API 2.0
 
-Jalankan aplikasi dari folder **Proyek_Lengkap**. Folder anggota berisi salinan kode sesuai bagian masing-masing.
+Proyek lengkap sekarang mencakup **harga paket, checkout, invoice, konfirmasi pembayaran simulasi, Premium 30 hari, renewal, cancel pending, expiry dan kuota API**.
+
+1. Buka [Proyek_Lengkap/README.md](Proyek_Lengkap/README.md) untuk instalasi. Jalankan server dari Proyek_Lengkap.
+2. Database baru: npm ci, npm run setup:env, edit .env, npm run db:migrate, npm start. Seed menghapus data lama. Jika mempertahankan database W7, backup dan gunakan db:upgrade.
+3. Untuk SQLyog, file [sql/install.sql](Proyek_Lengkap/sql/install.sql) sudah memuat CREATE DATABASE dan semua tabel/seed.
+4. Impor ulang dua file di Proyek_Lengkap/postman. Ikuti [ALUR_POSTMAN.md](Proyek_Lengkap/ALUR_POSTMAN.md). Koleksi baru berisi 46 request.
+5. Buka [PPT 12 slide](Presentasi/BookData_API_Key_Sederhana.pptx), tiga slide per pembicara.
 
 ## Empat panduan anggota
 
-| Urutan | Anggota | Panduan |
-|---|---|---|
-| 1 | Kenneth | [PANDUAN_Kenneth.md](01_Kenneth/PANDUAN_Kenneth.md) |
-| 2 | Bryan | [PANDUAN_Bryan.md](02_Bryan/PANDUAN_Bryan.md) |
-| 3 | Dana | [PANDUAN_Dana.md](03_Dana/PANDUAN_Dana.md) |
-| 4 | Rafael | [PANDUAN_Rafael.md](04_Rafael/PANDUAN_Rafael.md) |
+- [Kenneth](01_Kenneth/PANDUAN_Kenneth.md): database dan model.
+- [Bryan](02_Bryan/PANDUAN_Bryan.md): harga, checkout dan billing.
+- [Dana](03_Dana/PANDUAN_Dana.md): masa aktif, fitur dan kuota.
+- [Rafael](04_Rafael/PANDUAN_Rafael.md): route, data partner dan pengujian.
 
-Setiap folder anggota memuat `kode/` dengan path asli W7 dan `PERUBAHAN.diff` sebagai pembanding starter.
+Folder kode berisi isi file lengkap sesuai bagian; jangan menjalankannya sebagai empat aplikasi terpisah. Hasil gabungan berada di Proyek_Lengkap. PERUBAHAN.diff membandingkan file anggota terhadap starter W7.
 
-## Menjalankan aplikasi
-
-1. Buka terminal pada `Proyek_Lengkap`.
-2. Jalankan `npm ci` dan `npm run setup:env`.
-3. Sesuaikan koneksi MySQL pada `.env`.
-4. Untuk database baru atau reset data praktikum, jalankan `npm run db:migrate`. Perintah ini menjalankan seed yang menghapus data lama.
-5. Untuk mempertahankan data W7 yang sudah ada, buat backup lalu gunakan `npm run db:upgrade`.
-6. Jalankan `npm start`.
-
-Lihat petunjuk lengkap pada [README.md](Proyek_Lengkap/README.md).
-
-## Postman dan pengujian
-
-Impor koleksi [BookData-W8](Proyek_Lengkap/postman/BookData-W8.postman_collection.json) dan [environment bookdata-local](Proyek_Lengkap/postman/bookdata-local.postman_environment.json). Jalankan 18 request secara berurutan melalui Collection Runner.
-
-Untuk pengujian pada database khusus test, jalankan `npm run test:prepare`, kemudian `npm test`. Lihat [HASIL_UJI.md](HASIL_UJI.md) untuk catatan verifikasi.
-
-## Presentasi
-
-[BookData_API_Key_Final.pptx](Presentasi/BookData_API_Key_Final.pptx) berisi 12 slide dengan cuplikan JavaScript dan penjelasan fungsi. Kenneth membawakan slide 1–3, Bryan 4–6, Dana 7–9, dan Rafael 10–12.
-
-## Catatan implementasi
-
-`node_modules` dan `.env` berisi secret tidak disertakan. `setup:env` membuat secret lokal otomatis. Dokumen W7 asli tersedia sebagai Markdown di [docs/asli](Proyek_Lengkap/docs/asli/README.md).
-
-Premium Rp99.000/bulan merupakan simulasi aktivasi admin. Payment gateway dan masa aktif otomatis belum tersedia. Endpoint buku W7 lama tetap publik. Pembahasan batas produksi terdapat pada panduan Rafael.
+Basic gratis. Premium Rp99.000 untuk tepat 30 hari. Admin mengonfirmasi pembayaran simulasi; tidak ada debit uang sungguhan. Semua status invoice, tanggal, renewal dan akses benar-benar berjalan. Lihat [HASIL_UJI.md](HASIL_UJI.md).

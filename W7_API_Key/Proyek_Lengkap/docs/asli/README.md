@@ -1,3 +1,5 @@
+> Arsip starter W7 sebelum subscription 2.0. Panduan versi aktif: [README proyek](../../README.md).
+
 # SOA Minggu 7 — Auth & Middleware dengan JWT
 
 Starter praktikum Mata Kuliah Arsitektur Berbasis Layanan (SOA)

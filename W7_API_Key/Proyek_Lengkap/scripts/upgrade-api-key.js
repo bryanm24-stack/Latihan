@@ -15,7 +15,15 @@ async function main() {
     if (!indexes.length) await conn.query("ALTER TABLE pengguna ADD UNIQUE KEY uq_pengguna_api_key (api_key)");
     await conn.query(`UPDATE pengguna SET api_key = SHA2(api_key, 256)
       WHERE api_key REGEXP '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$'`);
-    console.log("Upgrade selesai. Data W7 dipertahankan, UUID lama kini tersimpan sebagai hash.");
+    await conn.query(fs.readFileSync(path.join(__dirname, "../sql/subscription_upgrade.sql"), "utf8"));
+    // Mempertahankan Premium manual lama sekali saja. Bukan transaksi pembayaran palsu.
+    await conn.query(`INSERT INTO subscriptions
+      (pengguna_id, plan, status, starts_at, ends_at, source)
+      SELECT p.id, 'premium', 'active', UTC_TIMESTAMP(3),
+        DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 30 DAY), 'legacy_migration'
+      FROM pengguna p WHERE p.api_level='premium'
+        AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.pengguna_id=p.id)`);
+    console.log("Upgrade selesai. Data W7 dipertahankan. Billing siap; Premium manual lama mendapat masa transisi 30 hari sekali.");
   } finally { await conn.end(); }
 }
 main().catch((err) => { console.error(err.message); process.exitCode = 1; });

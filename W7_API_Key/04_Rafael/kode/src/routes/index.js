@@ -9,6 +9,7 @@ const authRouter = require("./auth");
 const penggunaRouter = require("./pengguna");
 const apiKeyRouter = require("./apiKey");
 const partnerRouter = require("./partner");
+const { plansRouter, subscriptionRouter, paymentRouter } = require("./billing");
 
 module.exports = {
   contohRouter,
@@ -18,4 +19,7 @@ module.exports = {
   penggunaRouter,
   apiKeyRouter,
   partnerRouter,
+  plansRouter,
+  subscriptionRouter,
+  paymentRouter,
 };
