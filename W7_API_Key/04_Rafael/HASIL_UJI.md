@@ -13,6 +13,7 @@ Runtime: Node.js v24.22.1, MariaDB 10.11.14, mysql2 + Sequelize dialect mysql.
 6. Kode JavaScript: pemeriksaan sintaks berhasil.
 
 ## Kasus integrasi
+1. register tidak membocorkan hash password / api_key
 2. database menyimpan SHA-256, bukan raw key
 3. generate memerlukan JWT
 4. generate kedua menghasilkan 409
