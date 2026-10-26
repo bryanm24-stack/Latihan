@@ -1,0 +1,9 @@
+node_modules/
+.env
+uploads/*
+!uploads/.gitkeep
+.DS_Store
+
+# Materi jawaban dosen — kunci jawaban studi kasus, JANGAN PERNAH
+# ikut commit atau dibagikan ke mahasiswa lewat repo ini.
+dosen/
