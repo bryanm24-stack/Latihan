@@ -1,0 +1,30 @@
+{
+  "name": "bookdata-api-w7",
+  "version": "1.1.0",
+  "description": "W7 + Business Model API Key Basic/Premium",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "db:migrate": "node scripts/migrate.js",
+    "setup:env": "node scripts/setup-env.js",
+    "db:upgrade": "node scripts/upgrade-api-key.js",
+    "test": "node --test --test-concurrency=1 tests/api-key.integration.test.js",
+    "test:prepare": "node scripts/create-test-db.js"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "joi": "^17.13.3",
+    "axios": "^1.7.9",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "cookie-parser": "^1.4.7",
+    "mysql2": "^3.24.4",
+    "sequelize": "^6.37.8"
+  }
+}

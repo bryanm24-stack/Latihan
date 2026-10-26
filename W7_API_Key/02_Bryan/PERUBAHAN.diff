@@ -1,0 +1,104 @@
+--- /dev/null
++++ b/src/config/apiPlans.js
+@@ -0,0 +1,8 @@
++// BRYAN: satu sumber aturan paket. Harga merupakan simulasi praktikum.
++const API_PLANS = Object.freeze({
++  basic: Object.freeze({ name: "Basic", priceMonthly: 0, dailyLimit: 100,
++    minuteLimit: 10, features: ["ringkasan"] }),
++  premium: Object.freeze({ name: "Premium", priceMonthly: 99000, dailyLimit: 10000,
++    minuteLimit: 100, features: ["ringkasan", "analitik"] }),
++});
++module.exports = { API_PLANS };
+--- /dev/null
++++ b/src/utils/apiKey.js
+@@ -0,0 +1,10 @@
++const crypto = require("node:crypto");
++// Key baru memiliki 256 bit acak. Database hanya menyimpan SHA-256.
++const createApiKey = () =>
++  `bd_live_${crypto.randomBytes(32).toString("hex")}`;
++const hashApiKey = (rawKey) =>
++  crypto.createHash("sha256").update(rawKey).digest("hex");
++// UUID lama W7 tetap bisa dipakai setelah db:upgrade meng-hash nilainya.
++const isApiKey = (value) => typeof value === "string" &&
++  /^(bd_live_[a-f0-9]{64}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.test(value);
++module.exports = { createApiKey, hashApiKey, isApiKey };
+--- /dev/null
++++ b/src/controllers/apiKey.js
+@@ -0,0 +1,48 @@
++// BRYAN: JWT mengelola key, API key mengakses layanan partner.
++const { Pengguna, sequelize } = require("../models");
++const { API_PLANS } = require("../config/apiPlans");
++const { createApiKey, hashApiKey } = require("../utils/apiKey");
++const { snapshot } = require("../services/apiUsage");
++const issue = (replace) => async (req, res) => {
++  const result = await sequelize.transaction(async (transaction) => {
++    const user = await Pengguna.unscoped().findByPk(req.pengguna.id, {
++      transaction, lock: transaction.LOCK.UPDATE });
++    if (!user) return { status: 404, body: { code: "USER_NOT_FOUND" } };
++    if (!replace && user.api_key) return { status: 409, body: {
++      code: "KEY_ALREADY_EXISTS", msg: "Gunakan regenerate untuk mengganti key." } };
++    const rawKey = createApiKey();
++    await user.update({ api_key: hashApiKey(rawKey) }, { transaction });
++    return { status: replace ? 200 : 201, body: { api_key: rawKey, api_level: user.api_level,
++      msg: "Simpan key ini. Server hanya menampilkan key asli pada respons penerbitan." } };
++  });
++  res.set("Cache-Control", "no-store");
++  return res.status(result.status).json(result.body);
++};
++const generate = issue(false);
++const regenerate = issue(true);
++const me = async (req, res) => {
++  const user = await Pengguna.unscoped().findByPk(req.pengguna.id,
++    { attributes: ["id", "api_level", "api_key"] });
++  if (!user) return res.status(404).json({ code: "USER_NOT_FOUND" });
++  const usage = await snapshot(user.id);
++  const plan = API_PLANS[user.api_level];
++  return res.set("Cache-Control", "no-store").json({ pengguna_id: user.id,
++    has_api_key: Boolean(user.api_key), api_level: user.api_level, plan,
++    usage: { ...usage, timezone: "UTC", dailyRemaining: Math.max(0, plan.dailyLimit - usage.daily),
++      minuteRemaining: Math.max(0, plan.minuteLimit - usage.minute) } });
++};
++const setLevel = async (req, res) => {
++  const id = Number(req.params.id);
++  const body = req.body || {};
++  if (!Number.isSafeInteger(id) || id <= 0 || typeof body.api_level !== "string" ||
++      !Object.hasOwn(API_PLANS, body.api_level) ||
++      Object.keys(body).some((k) => k !== "api_level")) {
++    return res.status(400).json({ code: "INVALID_PLAN_INPUT", msg: "Kirim api_level basic atau premium." });
++  }
++  const user = await Pengguna.findByPk(id);
++  if (!user) return res.status(404).json({ code: "USER_NOT_FOUND" });
++  await user.update({ api_level: body.api_level });
++  return res.json({ pengguna_id: user.id, api_level: user.api_level,
++    msg: "Paket diperbarui oleh admin (simulasi pembayaran, tanpa tagihan otomatis)." });
++};
++module.exports = { generate, regenerate, me, setLevel };
+--- a/src/controllers/auth.js
++++ b/src/controllers/auth.js
+@@ -95,9 +95,9 @@
+       // berbahaya. Silakan coba kirim roles di body -- tidak akan
+       // pernah tersimpan.)
+       roles: "visitor",
+-      // api_key untuk Minggu 8: identitas aplikasi, terbit otomatis
+-      // saat register. randomUUID = acak yang tidak bisa ditebak.
+-      api_key: crypto.randomUUID(),
++      // BRYAN: key diterbitkan melalui endpoint khusus dengan JWT.
++      api_key: null,
++      api_level: "basic",
+     });
+ 
+     // model defaultScope sudah menyaring password -- tapi ini bentuk
+--- /dev/null
++++ b/src/routes/apiKey.js
+@@ -0,0 +1,11 @@
++const router = require("express").Router();
++const verifyJWT = require("../middlewares/verifyJWT");
++const checkRoles = require("../middlewares/checkRoles");
++const asyncHandler = require("../utils/asyncHandler");
++const c = require("../controllers/apiKey");
++router.use(verifyJWT);
++router.post("/generate", asyncHandler(c.generate));
++router.post("/regenerate", asyncHandler(c.regenerate));
++router.get("/me", asyncHandler(c.me));
++router.patch("/level/:id", checkRoles("admin"), asyncHandler(c.setLevel));
++module.exports = router;

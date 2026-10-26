@@ -1,0 +1,11 @@
+const router = require("express").Router();
+const verifyJWT = require("../middlewares/verifyJWT");
+const checkRoles = require("../middlewares/checkRoles");
+const asyncHandler = require("../utils/asyncHandler");
+const c = require("../controllers/apiKey");
+router.use(verifyJWT);
+router.post("/generate", asyncHandler(c.generate));
+router.post("/regenerate", asyncHandler(c.regenerate));
+router.get("/me", asyncHandler(c.me));
+router.patch("/level/:id", checkRoles("admin"), asyncHandler(c.setLevel));
+module.exports = router;

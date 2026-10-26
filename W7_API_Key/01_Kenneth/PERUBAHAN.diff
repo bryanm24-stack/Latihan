@@ -1,0 +1,190 @@
+--- a/sql/schema.sql
++++ b/sql/schema.sql
+@@ -96,5 +96,20 @@
+   updatedAt         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                     ON UPDATE CURRENT_TIMESTAMP,
+ 
+-  UNIQUE KEY uq_pengguna_nama (pengguna_nama)
++  UNIQUE KEY uq_pengguna_nama (pengguna_nama),
++  UNIQUE KEY uq_pengguna_api_key (api_key)
+ ) ENGINE=InnoDB;
++
++
++-- KENNETH: log sekaligus reservasi kuota untuk request yang diterima.
++CREATE TABLE IF NOT EXISTS api_log (
++  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
++  pengguna_id INT UNSIGNED NOT NULL,
++  endpoint VARCHAR(255) NOT NULL,
++  http_method VARCHAR(10) NOT NULL,
++  status_code SMALLINT UNSIGNED NULL,
++  createdAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
++  CONSTRAINT fk_api_log_pengguna FOREIGN KEY (pengguna_id)
++    REFERENCES pengguna(id) ON DELETE CASCADE,
++  INDEX idx_api_log_pengguna_waktu (pengguna_id, createdAt)
++) ENGINE=InnoDB;
+--- a/sql/seed.sql
++++ b/sql/seed.sql
+@@ -13,6 +13,7 @@
+ TRUNCATE TABLE karakter;
+ TRUNCATE TABLE buku;
+ TRUNCATE TABLE penulis;
++TRUNCATE TABLE api_log;
+ TRUNCATE TABLE pengguna;
+ SET FOREIGN_KEY_CHECKS = 1;
+ 
+@@ -58,5 +59,5 @@
+ -- Registrasi selalu memberi role visitor; admin hanya disediakan oleh
+ -- seed development ini.
+ -- ------------------------------------------------------------
+-INSERT INTO pengguna (id, pengguna_nama, pengguna_jk, pengguna_password, roles, api_key) VALUES
+-  (1, 'admin', 'L', '$2a$10$isKcE3QfjHwpZep4IB77KOUKktGtIAM5knz6FLxxHACbNfugDh3US', 'admin', UUID());
++INSERT INTO pengguna (id, pengguna_nama, pengguna_jk, pengguna_password, roles) VALUES
++  (1, 'admin', 'L', '$2a$10$isKcE3QfjHwpZep4IB77KOUKktGtIAM5knz6FLxxHACbNfugDh3US', 'admin');
+--- /dev/null
++++ b/sql/api_key_upgrade.sql
+@@ -0,0 +1,12 @@
++-- KENNETH: log sekaligus reservasi kuota untuk request yang diterima.
++CREATE TABLE IF NOT EXISTS api_log (
++  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
++  pengguna_id INT UNSIGNED NOT NULL,
++  endpoint VARCHAR(255) NOT NULL,
++  http_method VARCHAR(10) NOT NULL,
++  status_code SMALLINT UNSIGNED NULL,
++  createdAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
++  CONSTRAINT fk_api_log_pengguna FOREIGN KEY (pengguna_id)
++    REFERENCES pengguna(id) ON DELETE CASCADE,
++  INDEX idx_api_log_pengguna_waktu (pengguna_id, createdAt)
++) ENGINE=InnoDB;
+--- /dev/null
++++ b/src/models/ApiLog.js
+@@ -0,0 +1,19 @@
++const { Model } = require("sequelize");
++module.exports = (sequelize, DataTypes) => {
++  class ApiLog extends Model {
++    static associate(models) {
++      ApiLog.belongsTo(models.Pengguna, { foreignKey: "pengguna_id", as: "pengguna" });
++    }
++  }
++  ApiLog.init({
++    id: { type: DataTypes.BIGINT.UNSIGNED, autoIncrement: true, primaryKey: true },
++    pengguna_id: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
++    endpoint: { type: DataTypes.STRING(255), allowNull: false },
++    http_method: { type: DataTypes.STRING(10), allowNull: false },
++    status_code: { type: DataTypes.SMALLINT.UNSIGNED, allowNull: true },
++    createdAt: { type: DataTypes.DATE(3), allowNull: false, defaultValue: DataTypes.NOW },
++  }, { sequelize, modelName: "ApiLog", tableName: "api_log", timestamps: true,
++    createdAt: "createdAt", updatedAt: false,
++    indexes: [{ fields: ["pengguna_id", "createdAt"] }] });
++  return ApiLog;
++};
+--- a/src/models/Pengguna.js
++++ b/src/models/Pengguna.js
+@@ -26,11 +26,11 @@
+ module.exports = (sequelize, DataTypes) => {
+   class Pengguna extends Model {
+     /**
+-     * Tidak ada relasi di minggu ini -- kolom api_key/api_level baru
+-     * dipakai di Minggu 8 (API key aplikasi), dan relasinya satu arah
+-     * dari api_log (Minggu 8 juga).
++     * Minggu 8: satu pengguna memiliki banyak log request partner.
+      */
+-    static associate() {}
++    static associate(models) {
++      Pengguna.hasMany(models.ApiLog, { foreignKey: "pengguna_id", as: "apiLogs" });
++    }
+   }
+ 
+   Pengguna.init(
+@@ -79,10 +79,10 @@
+       },
+ 
+       api_key: {
+-        // identitas APLIKASI developer -- di-generate otomatis saat
+-        // register (crypto.randomUUID()), dipakai di Minggu 8.
++        // SHA-256 key aplikasi. Raw key hanya muncul saat generate/regenerate.
+         type: DataTypes.STRING(64),
+         allowNull: true,
++        unique: "uq_pengguna_api_key",
+       },
+ 
+       api_level: {
+@@ -90,6 +90,7 @@
+         type: DataTypes.STRING(50),
+         allowNull: false,
+         defaultValue: "basic",
++        validate: { isIn: [["basic", "premium"]] },
+       },
+ 
+       /* ------------------------------------------------------------
+@@ -130,7 +131,7 @@
+       // ------------------------------------------------------------
+       defaultScope: {
+         attributes: {
+-          exclude: ["createdAt", "updatedAt", "pengguna_password"],
++          exclude: ["createdAt", "updatedAt", "pengguna_password", "api_key"],
+         },
+       },
+     }
+--- a/src/models/index.js
++++ b/src/models/index.js
+@@ -29,10 +29,12 @@
+ const Buku = require("./Buku");
+ const Karakter = require("./Karakter");
+ const Pengguna = require("./Pengguna");
++const ApiLog = require("./ApiLog");
+ 
+ db.Buku = Buku(sequelize, sequelize.Sequelize);
+ db.Karakter = Karakter(sequelize, sequelize.Sequelize);
+ db.Pengguna = Pengguna(sequelize, sequelize.Sequelize);
++db.ApiLog = ApiLog(sequelize, sequelize.Sequelize);
+ 
+ // Relasi dinyatakan SETELAH semua model ada. Urutan di objek `db`
+ // tidak penting; yang penting semua sudah terdaftar di baris atas.
+--- a/scripts/migrate.js
++++ b/scripts/migrate.js
+@@ -23,6 +23,7 @@
+ const mysql = require("mysql2/promise");
+ 
+ const DB_NAME = process.env.DB_NAME || "soa_minggu7";
++if (!/^[a-zA-Z0-9_]+$/.test(DB_NAME)) throw new Error("DB_NAME hanya boleh huruf, angka, underscore");
+ 
+ const bacaSql = (nama) =>
+   fs.readFileSync(path.join(__dirname, "..", "sql", nama), "utf8");
+@@ -48,6 +49,13 @@
+ 
+     console.log("[migrate] Menjalankan sql/schema.sql...");
+     await koneksi.query(bacaSql("schema.sql"));
++    // CREATE TABLE IF NOT EXISTS tidak menambah index pada tabel W7 yang sudah ada.
++    const [apiIndexes] = await koneksi.query(
++      "SHOW INDEX FROM pengguna WHERE Key_name = 'uq_pengguna_api_key'"
++    );
++    if (!apiIndexes.length) {
++      await koneksi.query("ALTER TABLE pengguna ADD UNIQUE KEY uq_pengguna_api_key (api_key)");
++    }
+ 
+     console.log("[migrate] Menjalankan sql/seed.sql...");
+     await koneksi.query(bacaSql("seed.sql"));
+--- /dev/null
++++ b/scripts/upgrade-api-key.js
+@@ -0,0 +1,21 @@
++// KENNETH: migrasi tambahan untuk database W7 yang sudah berisi data.
++// Tidak menjalankan seed atau TRUNCATE. UUID lama di-hash, raw key tetap berlaku.
++require("dotenv").config();
++const mysql = require("mysql2/promise");
++const fs = require("node:fs");
++const path = require("node:path");
++async function main() {
++  const conn = await mysql.createConnection({ host: process.env.DB_HOST || "127.0.0.1",
++    port: Number(process.env.DB_PORT) || 3306, user: process.env.DB_USER || "root",
++    password: process.env.DB_PASSWORD || "", database: process.env.DB_NAME || "soa_minggu7",
++    multipleStatements: true });
++  try {
++    await conn.query(fs.readFileSync(path.join(__dirname, "../sql/api_key_upgrade.sql"), "utf8"));
++    const [indexes] = await conn.query("SHOW INDEX FROM pengguna WHERE Key_name = 'uq_pengguna_api_key'");
++    if (!indexes.length) await conn.query("ALTER TABLE pengguna ADD UNIQUE KEY uq_pengguna_api_key (api_key)");
++    await conn.query(`UPDATE pengguna SET api_key = SHA2(api_key, 256)
++      WHERE api_key REGEXP '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$'`);
++    console.log("Upgrade selesai. Data W7 dipertahankan, UUID lama kini tersimpan sebagai hash.");
++  } finally { await conn.end(); }
++}
++main().catch((err) => { console.error(err.message); process.exitCode = 1; });

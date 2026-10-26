@@ -1,0 +1,1131 @@
+--- /dev/null
++++ b/src/controllers/partner.js
+@@ -0,0 +1,24 @@
++// RAFAEL: hasil dihitung dari data buku W7 yang sesungguhnya.
++const { Op } = require("sequelize");
++const { Buku, sequelize } = require("../models");
++const ringkasan = async (req, res) => {
++  const [row] = await Buku.findAll({ attributes: [
++    [sequelize.fn("COUNT", sequelize.col("id")), "total_judul"],
++    [sequelize.fn("SUM", sequelize.col("stok")), "total_stok"],
++    [sequelize.fn("AVG", sequelize.col("harga")), "rata_rata_harga"],
++  ], raw: true });
++  return res.json({ data: { total_judul: Number(row.total_judul), total_stok: Number(row.total_stok || 0),
++    rata_rata_harga: Math.round(Number(row.rata_rata_harga || 0)) } });
++};
++const analitik = async (req, res) => {
++  const kategori = await Buku.findAll({ attributes: ["kategori",
++    [sequelize.fn("COUNT", sequelize.col("id")), "total_judul"],
++    [sequelize.fn("SUM", sequelize.col("stok")), "total_stok"],
++  ], group: ["kategori"], order: [["kategori", "ASC"]], raw: true });
++  const stokRendah = await Buku.findAll({ where: { stok: { [Op.lte]: 5 } },
++    attributes: ["id", "judul", "stok"], order: [["stok", "ASC"], ["id", "ASC"]] });
++  return res.json({ data: { kategori: kategori.map((r) => ({ ...r,
++    total_judul: Number(r.total_judul), total_stok: Number(r.total_stok) })),
++    stok_rendah: stokRendah, ambang_stok_rendah: 5 } });
++};
++module.exports = { ringkasan, analitik };
+--- /dev/null
++++ b/src/routes/partner.js
+@@ -0,0 +1,12 @@
++const router = require("express").Router();
++const asyncHandler = require("../utils/asyncHandler");
++const verifyApiKey = require("../middlewares/verifyApiKey");
++const checkApiLevel = require("../middlewares/checkApiLevel");
++const limitApiUsage = require("../middlewares/limitApiUsage");
++const { ringkasan, analitik } = require("../controllers/partner");
++// Cek fitur SEBELUM reservasi. Penolakan 401/403/429 tidak menghabiskan kuota.
++router.get("/ringkasan", asyncHandler(verifyApiKey), checkApiLevel("ringkasan"),
++  asyncHandler(limitApiUsage), asyncHandler(ringkasan));
++router.get("/analitik", asyncHandler(verifyApiKey), checkApiLevel("analitik"),
++  asyncHandler(limitApiUsage), asyncHandler(analitik));
++module.exports = router;
+--- a/src/routes/index.js
++++ b/src/routes/index.js
+@@ -7,6 +7,8 @@
+ const axiosRouter = require("./contohAxios");
+ const authRouter = require("./auth");
+ const penggunaRouter = require("./pengguna");
++const apiKeyRouter = require("./apiKey");
++const partnerRouter = require("./partner");
+ 
+ module.exports = {
+   contohRouter,
+@@ -14,4 +16,6 @@
+   axiosRouter,
+   authRouter,
+   penggunaRouter,
++  apiKeyRouter,
++  partnerRouter,
+ };
+--- a/src/databases/connection.js
++++ b/src/databases/connection.js
+@@ -27,6 +27,7 @@
+     host: process.env.DB_HOST || "127.0.0.1",
+     port: Number(process.env.DB_PORT) || 3306,
+     dialect: "mysql",
++    timezone: "+00:00",
+ 
+     // Pool — versi ORM dari konfigurasi pool Minggu 3.
+     pool: {
+@@ -46,7 +47,7 @@
+      *
+      * Setelah selesai belajar, ganti menjadi `logging: false`.
+      */
+-    logging: (sql) => console.log("[SQL]", sql),
++    logging: process.env.SQL_LOG === "true" ? (sql) => console.log("[SQL]", sql) : false,
+     // logging: false,
+ 
+     define: {
+--- /dev/null
++++ b/app.js
+@@ -0,0 +1,86 @@
++/**
++ * TITIK MASUK APLIKASI
++ *
++ * Tugas file ini HANYA tiga:
++ *   1. memasang middleware global
++ *   2. memasang router
++ *   3. menyalakan server
++ *
++ * Tidak boleh ada logika bisnis di sini. Kalau file ini mulai panjang,
++ * berarti ada yang salah tempat.
++ */
++require("dotenv").config();
++
++const express = require("express");
++const app = express();
++
++const logger = require("./src/middlewares/logger");
++const notFound = require("./src/middlewares/notFound");
++const errorHandler = require("./src/middlewares/errorHandler");
++const {
++  contohRouter,
++  bukuRouter,
++  axiosRouter,
++  authRouter,
++  penggunaRouter,
++  apiKeyRouter,
++  partnerRouter,
++} = require("./src/routes");
++
++
++
++
++/* ------------------------------------------------------------------ */
++/* 1. MIDDLEWARE GLOBAL                                                */
++/*    Urutan itu penting. Middleware dijalankan dari atas ke bawah.    */
++/* ------------------------------------------------------------------ */
++
++// WAJIB. Tanpa dua baris ini req.body akan undefined.
++app.use(express.json());                          // untuk Content-Type: application/json
++app.use(express.urlencoded({ extended: true }));  // untuk form x-www-form-urlencoded
++
++// MINGGU 7: membaca cookie dari request -- yang menulisnya res.cookie()
++// saat login (refresh token). Tanpa ini req.cookies undefined.
++app.use(require("cookie-parser")());
++
++// Logger sederhana. Middleware formal kini kalian tulis sendiri
++// (verifyJWT, checkRoles) -- tapi logger ini tetap global middleware
++// yang paling awal: dia catat SEMUA request, termasuk yang nanti
++// ditolak auth.
++app.use(logger);
++
++/* ------------------------------------------------------------------ */
++/* 2. ROUTER                                                           */
++/* ------------------------------------------------------------------ */
++app.get("/", (req, res) =>
++  res.json({
++    service: "BookData API W7 + API Key",
++    version: "1.1.0",
++    endpoints: [
++      "/api/v1/contoh",
++      "/api/v1/buku",
++      "/api/v1/contohAxios",
++      "/api/v1/auth",
++      "/api/v1/pengguna",
++      "/api/v1/api-key",
++      "/api/v1/partner",
++    ],
++  })
++);
++
++app.use("/api/v1/contoh", contohRouter);
++app.use("/api/v1/buku", bukuRouter);
++app.use("/api/v1/contohAxios", axiosRouter);
++app.use("/api/v1/auth", authRouter);
++app.use("/api/v1/pengguna", penggunaRouter);
++app.use("/api/v1/api-key", apiKeyRouter);
++app.use("/api/v1/partner", partnerRouter);
++
++/* ------------------------------------------------------------------ */
++/* 3. PENANGKAP DI PALING BAWAH                                        */
++/*    Keduanya HARUS setelah semua router, bukan sebelumnya.           */
++/* ------------------------------------------------------------------ */
++app.use(notFound);       // tidak ada route yang cocok  -> 404
++app.use(errorHandler);   // ada error yang tidak tertangkap -> 500
++
++module.exports = app;
+--- a/index.js
++++ b/index.js
+@@ -1,16 +1,4 @@
+-/**
+- * TITIK MASUK APLIKASI
+- *
+- * Tugas file ini HANYA tiga:
+- *   1. memasang middleware global
+- *   2. memasang router
+- *   3. menyalakan server
+- *
+- * Tidak boleh ada logika bisnis di sini. Kalau file ini mulai panjang,
+- * berarti ada yang salah tempat.
+- */
+ require("dotenv").config();
+-
+ const accessSecret = process.env.ACCESS_TOKEN_SECRET || "";
+ const refreshSecret = process.env.REFRESH_TOKEN_SECRET || "";
+ const validJwtSecrets =
+@@ -28,75 +16,8 @@
+   process.exit(1);
+ }
+ 
+-const express = require("express");
+-const app = express();
+ 
+-const logger = require("./src/middlewares/logger");
+-const notFound = require("./src/middlewares/notFound");
+-const errorHandler = require("./src/middlewares/errorHandler");
+-const {
+-  contohRouter,
+-  bukuRouter,
+-  axiosRouter,
+-  authRouter,
+-  penggunaRouter,
+-} = require("./src/routes");
++const app = require("./app");
+ const { testConnection } = require("./src/databases/connection");
+-
+ const port = process.env.PORT || 3001;
+-
+-/* ------------------------------------------------------------------ */
+-/* 1. MIDDLEWARE GLOBAL                                                */
+-/*    Urutan itu penting. Middleware dijalankan dari atas ke bawah.    */
+-/* ------------------------------------------------------------------ */
+-
+-// WAJIB. Tanpa dua baris ini req.body akan undefined.
+-app.use(express.json());                          // untuk Content-Type: application/json
+-app.use(express.urlencoded({ extended: true }));  // untuk form x-www-form-urlencoded
+-
+-// MINGGU 7: membaca cookie dari request -- yang menulisnya res.cookie()
+-// saat login (refresh token). Tanpa ini req.cookies undefined.
+-app.use(require("cookie-parser")());
+-
+-// Logger sederhana. Middleware formal kini kalian tulis sendiri
+-// (verifyJWT, checkRoles) -- tapi logger ini tetap global middleware
+-// yang paling awal: dia catat SEMUA request, termasuk yang nanti
+-// ditolak auth.
+-app.use(logger);
+-
+-/* ------------------------------------------------------------------ */
+-/* 2. ROUTER                                                           */
+-/* ------------------------------------------------------------------ */
+-app.get("/", (req, res) =>
+-  res.json({
+-    service: "SOA Minggu 7",
+-    version: "1.0.0",
+-    endpoints: [
+-      "/api/v1/contoh",
+-      "/api/v1/buku",
+-      "/api/v1/contohAxios",
+-      "/api/v1/auth",
+-      "/api/v1/pengguna",
+-    ],
+-  })
+-);
+-
+-app.use("/api/v1/contoh", contohRouter);
+-app.use("/api/v1/buku", bukuRouter);
+-app.use("/api/v1/contohAxios", axiosRouter);
+-app.use("/api/v1/auth", authRouter);
+-app.use("/api/v1/pengguna", penggunaRouter);
+-
+-/* ------------------------------------------------------------------ */
+-/* 3. PENANGKAP DI PALING BAWAH                                        */
+-/*    Keduanya HARUS setelah semua router, bukan sebelumnya.           */
+-/* ------------------------------------------------------------------ */
+-app.use(notFound);       // tidak ada route yang cocok  -> 404
+-app.use(errorHandler);   // ada error yang tidak tertangkap -> 500
+-
+-app.listen(port, () => {
+-  console.log(`Example app listening on port ${port}!`);
+-  // Dites SETELAH server menyala, bukan sebelum: kalau MySQL belum siap,
+-  // /api/v1/contoh (tidak butuh database) tetap bisa dipakai untuk latihan.
+-  testConnection();
+-});
++app.listen(port, () => { console.log(`BookData API berjalan pada port ${port}`); testConnection(); });
+--- a/.env.example
++++ b/.env.example
+@@ -21,3 +21,7 @@
+ # Dua-duanya HARUS berbeda. Jangan pernah masuk git.
+ ACCESS_TOKEN_SECRET=ganti_dengan_64_karakter_acak
+ REFRESH_TOKEN_SECRET=ganti_dengan_64_karakter_acak_yang_berbeda
++
++# W8: logging SQL opsional dan nama database test terpisah
++SQL_LOG=false
++TEST_DB_NAME=soa_bookdata_w8_test
+--- a/package.json
++++ b/package.json
+@@ -1,12 +1,16 @@
+ {
+-  "name": "soa-minggu7",
+-  "version": "1.0.0",
+-  "description": "Starter Praktikum Minggu 7 - Auth JWT",
++  "name": "bookdata-api-w7",
++  "version": "1.1.0",
++  "description": "W7 + Business Model API Key Basic/Premium",
+   "main": "index.js",
+   "scripts": {
+     "start": "node index.js",
+-    "dev": "nodemon index.js",
+-    "db:migrate": "node scripts/migrate.js"
++    "dev": "node --watch index.js",
++    "db:migrate": "node scripts/migrate.js",
++    "setup:env": "node scripts/setup-env.js",
++    "db:upgrade": "node scripts/upgrade-api-key.js",
++    "test": "node --test --test-concurrency=1 tests/api-key.integration.test.js",
++    "test:prepare": "node scripts/create-test-db.js"
+   },
+   "engines": {
+     "node": "24.x"
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+-  "name": "soa-minggu7",
+-  "version": "1.0.0",
++  "name": "bookdata-api-w7",
++  "version": "1.1.0",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+-      "name": "soa-minggu7",
+-      "version": "1.0.0",
++      "name": "bookdata-api-w7",
++      "version": "1.1.0",
+       "license": "ISC",
+       "dependencies": {
+         "axios": "^1.7.9",
+--- /dev/null
++++ b/scripts/setup-env.js
+@@ -0,0 +1,12 @@
++// RAFAEL: membuat .env lokal sekali saja, tanpa menimpa konfigurasi lama.
++const fs = require("node:fs");
++const crypto = require("node:crypto");
++if (fs.existsSync(".env")) { console.log(".env sudah ada. Tidak ditimpa."); process.exit(0); }
++let text = fs.readFileSync(".env.example", "utf8");
++text = text.replace(/^ACCESS_TOKEN_SECRET=.*$/m,
++  `ACCESS_TOKEN_SECRET=${crypto.randomBytes(64).toString("hex")}`);
++text = text.replace(/^REFRESH_TOKEN_SECRET=.*$/m,
++  `REFRESH_TOKEN_SECRET=${crypto.randomBytes(64).toString("hex")}`);
++text = text.replace(/^DB_NAME=.*$/m, "DB_NAME=soa_bookdata_w8");
++fs.writeFileSync(".env", text, { mode: 0o600 });
++console.log(".env dibuat. Sesuaikan DB_HOST, DB_PORT, DB_USER dan DB_PASSWORD.");
+--- /dev/null
++++ b/scripts/create-test-db.js
+@@ -0,0 +1,19 @@
++// Database pengujian TERPISAH. Hanya nama *_test boleh dipakai.
++require("dotenv").config();
++const mysql = require("mysql2/promise");
++const fs = require("node:fs");
++const path = require("node:path");
++async function main() {
++  const name = process.env.TEST_DB_NAME || "soa_bookdata_w8_test";
++  if (!/^[a-zA-Z0-9_]+_test$/.test(name)) throw new Error("TEST_DB_NAME harus berakhiran _test");
++  const conn = await mysql.createConnection({ host: process.env.DB_HOST || "127.0.0.1",
++    port: Number(process.env.DB_PORT) || 3306, user: process.env.DB_USER || "root",
++    password: process.env.DB_PASSWORD || "", multipleStatements: true });
++  try {
++    await conn.query(`CREATE DATABASE IF NOT EXISTS \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
++    await conn.query(`USE \`${name}\``);
++    for (const file of ["schema.sql", "seed.sql"]) await conn.query(fs.readFileSync(path.join(__dirname, "../sql", file), "utf8"));
++    console.log(`Database uji ${name} siap.`);
++  } finally { await conn.end(); }
++}
++main().catch((err) => { console.error(err.message); process.exitCode = 1; });
+--- /dev/null
++++ b/tests/api-key.integration.test.js
+@@ -0,0 +1,175 @@
++// RAFAEL: HTTP + Sequelize + MySQL nyata. Jalankan test:prepare terlebih dahulu.
++require("dotenv").config();
++process.env.DB_NAME = process.env.TEST_DB_NAME || "soa_bookdata_w8_test";
++if (!/^[a-zA-Z0-9_]+_test$/.test(process.env.DB_NAME)) throw new Error("Database uji harus berakhiran _test");
++process.env.ACCESS_TOKEN_SECRET ||= "a".repeat(128);
++process.env.REFRESH_TOKEN_SECRET ||= "b".repeat(128);
++const { test, before, after } = require("node:test");
++const assert = require("node:assert/strict");
++const { once } = require("node:events");
++const crypto = require("node:crypto");
++const { sequelize, Pengguna, ApiLog } = require("../src/models");
++const app = require("../app");
++const { hashApiKey } = require("../src/utils/apiKey");
++let server, base, seq = 0;
++const suffix = crypto.randomBytes(4).toString("hex");
++async function request(path, { method = "GET", token, key, body } = {}) {
++  const headers = {};
++  if (token) headers.Authorization = `Bearer ${token}`;
++  if (key) headers["X-API-Key"] = key;
++  if (body) headers["Content-Type"] = "application/json";
++  const response = await fetch(base + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
++  return { status: response.status, body: await response.json(), headers: response.headers };
++}
++const auth = (path, options) => request(`/api/v1/auth/${path}`, options);
++const manage = (path, options) => request(`/api/v1/api-key/${path}`, options);
++const partner = (path, key) => request(`/api/v1/partner/${path}`, { key });
++async function account() {
++  const name = `t${suffix}${++seq}`;
++  const reg = await auth("register", { method: "POST", body: { pengguna_nama: name, pengguna_password: "Tester123!" } });
++  assert.equal(reg.status, 201);
++  const login = await auth("login", { method: "POST", body: { pengguna_nama: name, pengguna_password: "Tester123!" } });
++  return { id: reg.body.id, token: login.body.accessToken, registered: reg.body };
++}
++async function withKey() {
++  const user = await account();
++  const issued = await manage("generate", { method: "POST", token: user.token });
++  assert.equal(issued.status, 201);
++  return { ...user, key: issued.body.api_key };
++}
++before(async () => {
++  await sequelize.authenticate();
++  server = app.listen(0, "127.0.0.1"); await once(server, "listening");
++  base = `http://127.0.0.1:${server.address().port}`;
++});
++after(async () => {
++  if (server) await new Promise((resolve) => server.close(resolve));
++  await sequelize.close();
++});
++test("BookData API: alur bisnis dan batas akses pada database nyata", async (t) => {
++  const user = await withKey();
++  await t.test("register tidak membocorkan hash password / api_key", () => {
++    assert.equal(user.registered.api_key, undefined);
++    assert.equal(user.registered.pengguna_password, undefined);
++    assert.equal(user.registered.api_level, "basic");
++  });
++  await t.test("database menyimpan SHA-256, bukan raw key", async () => {
++    const row = await Pengguna.unscoped().findByPk(user.id);
++    assert.match(user.key, /^bd_live_[a-f0-9]{64}$/);
++    assert.equal(row.api_key, hashApiKey(user.key));
++    assert.notEqual(row.api_key, user.key);
++  });
++  await t.test("generate memerlukan JWT", async () => {
++    assert.equal((await manage("generate", { method: "POST" })).status, 401);
++  });
++  await t.test("generate kedua menghasilkan 409", async () => {
++    assert.equal((await manage("generate", { method: "POST", token: user.token })).status, 409);
++  });
++  await t.test("dua generate bersamaan hanya menerbitkan satu key", async () => {
++    const u = await account();
++    const results = await Promise.all([1, 2].map(() => manage("generate", { method: "POST", token: u.token })));
++    assert.deepEqual(results.map((r) => r.status).sort(), [201, 409]);
++  });
++  await t.test("key hilang / salah dan JWT saja tidak memberi akses partner", async () => {
++    assert.equal((await partner("ringkasan")).status, 401);
++    assert.equal((await partner("ringkasan", "bd_live_" + "0".repeat(64))).status, 401);
++    assert.equal((await request("/api/v1/partner/ringkasan", { token: user.token })).status, 401);
++  });
++  await t.test("Basic mendapat ringkasan dari buku W7 dan header sisa kuota", async () => {
++    const r = await partner("ringkasan", user.key);
++    assert.equal(r.status, 200); assert.ok(r.body.data.total_judul >= 5);
++    assert.equal(r.headers.get("x-daily-remaining"), "99");
++  });
++  await t.test("Basic ditolak analitik tanpa menghabiskan kuota", async () => {
++    const before = await ApiLog.count({ where: { pengguna_id: user.id } });
++    assert.equal((await partner("analitik", user.key)).status, 403);
++    assert.equal(await ApiLog.count({ where: { pengguna_id: user.id } }), before);
++  });
++  await t.test("visitor tidak dapat upgrade paket sendiri", async () => {
++    assert.equal((await manage(`level/${user.id}`, { method: "PATCH", token: user.token,
++      body: { api_level: "premium" } })).status, 403);
++  });
++  const admin = await auth("login", { method: "POST", body: { pengguna_nama: "admin", pengguna_password: "Admin123!" } });
++  assert.equal(admin.status, 200);
++  await t.test("admin menolak paket / id / body yang salah", async () => {
++    for (const [id, body] of [[user.id, { api_level: "gold" }], ["abc", { api_level: "premium" }],
++      [user.id, { api_level: "premium", roles: "admin" }], [user.id, { api_level: { toString: "bad" } }]]) {
++      assert.equal((await manage(`level/${id}`, { method: "PATCH", token: admin.body.accessToken, body })).status, 400);
++    }
++  });
++  await t.test("admin menerima 404 jika target tidak ada", async () => {
++    assert.equal((await manage("level/2147483647", { method: "PATCH", token: admin.body.accessToken,
++      body: { api_level: "premium" } })).status, 404);
++  });
++  await t.test("admin mengaktifkan Premium, key yang sama langsung mendapat analitik", async () => {
++    assert.equal((await manage(`level/${user.id}`, { method: "PATCH", token: admin.body.accessToken,
++      body: { api_level: "premium" } })).status, 200);
++    const r = await partner("analitik", user.key);
++    assert.equal(r.status, 200); assert.ok(Array.isArray(r.body.data.kategori));
++    assert.equal(r.headers.get("x-api-level"), "premium");
++  });
++  await t.test("me menampilkan penggunaan tanpa raw key atau hash", async () => {
++    const r = await manage("me", { token: user.token });
++    assert.equal(r.status, 200); assert.equal(r.body.usage.daily, 2);
++    assert.equal(r.body.api_key, undefined); assert.equal(r.body.has_api_key, true);
++    assert.ok(!JSON.stringify(r.body).includes(hashApiKey(user.key)));
++  });
++  await t.test("regenerate mencabut key lama tanpa menghapus pemakaian", async () => {
++    const r = await manage("regenerate", { method: "POST", token: user.token });
++    assert.equal(r.status, 200); assert.notEqual(r.body.api_key, user.key);
++    assert.equal((await partner("ringkasan", user.key)).status, 401);
++    assert.equal((await partner("ringkasan", r.body.api_key)).status, 200);
++    user.key = r.body.api_key;
++    assert.equal((await manage("me", { token: user.token })).body.usage.daily, 3);
++  });
++  await t.test("downgrade segera menolak analitik", async () => {
++    await manage(`level/${user.id}`, { method: "PATCH", token: admin.body.accessToken, body: { api_level: "basic" } });
++    assert.equal((await partner("analitik", user.key)).status, 403);
++  });
++  await t.test("11 request Basic bersamaan menerima tepat 10 slot", async () => {
++    const u = await withKey();
++    // Hindari lintas batas menit pada kasus uji ini.
++    const remaining = 60000 - (Date.now() % 60000);
++    if (remaining < 3000) await new Promise((r) => setTimeout(r, remaining + 20));
++    const rs = await Promise.all(Array.from({ length: 11 }, () => partner("ringkasan", u.key)));
++    assert.equal(rs.filter((r) => r.status === 200).length, 10);
++    const denied = rs.filter((r) => r.status === 429);
++    assert.equal(denied.length, 1); assert.equal(denied[0].body.code, "RATE_LIMIT_EXCEEDED");
++    assert.ok(Number(denied[0].headers.get("retry-after")) > 0);
++    assert.equal(await ApiLog.count({ where: { pengguna_id: u.id } }), 10);
++  });
++  await t.test("kuota harian 100 menolak request berikutnya walaupun menit masih kosong", async () => {
++    const u = await withKey();
++    const now = new Date(); const day = new Date(now); day.setUTCHours(0, 0, 0, 0);
++    // Fixture tetap pada hari UTC ini. Kuota harian diperiksa terlebih dahulu.
++    const minute = new Date(now); minute.setUTCSeconds(0, 0);
++    const old = new Date(Math.max(+day, +minute - 1000));
++    await ApiLog.bulkCreate(Array.from({ length: 100 }, () => ({ pengguna_id: u.id,
++      endpoint: "/fixture", http_method: "GET", status_code: 200, createdAt: old })));
++    const r = await partner("ringkasan", u.key);
++    assert.equal(r.status, 429); assert.equal(r.body.code, "DAILY_QUOTA_EXCEEDED");
++  });
++  await t.test("Premium meloloskan lebih dari 10 request per menit", async () => {
++    const u = await withKey(); await Pengguna.update({ api_level: "premium" }, { where: { id: u.id } });
++    const rs = await Promise.all(Array.from({ length: 12 }, () => partner("ringkasan", u.key)));
++    assert.ok(rs.every((r) => r.status === 200));
++  });
++  await t.test("log merekam HTTP status sesudah respons tanpa menyimpan key", async () => {
++    let rows;
++    for (let i = 0; i < 40; i++) {
++      rows = await ApiLog.findAll({ where: { pengguna_id: user.id }, raw: true });
++      if (rows.every((r) => r.status_code !== null)) break;
++      await new Promise((r) => setTimeout(r, 25));
++    }
++    assert.ok(rows.length >= 3); assert.ok(rows.every((r) => r.status_code === 200));
++    assert.ok(rows.every((r) => !JSON.stringify(r).includes(user.key)));
++  });
++  await t.test("UUID lama yang sudah di-hash masih dapat dipakai", async () => {
++    const u = await account(); const legacy = crypto.randomUUID();
++    await Pengguna.update({ api_key: hashApiKey(legacy) }, { where: { id: u.id } });
++    assert.equal((await partner("ringkasan", legacy)).status, 200);
++  });
++  await t.test("endpoint buku W7 tetap tersedia", async () => {
++    assert.equal((await request("/api/v1/buku")).status, 200);
++  });
++});
+--- /dev/null
++++ b/postman/BookData-W8.postman_collection.json
+@@ -0,0 +1,533 @@
++{
++  "info": {
++    "name": "BookData W8 API Key - Demo berurutan",
++    "description": "Jalankan Runner berurutan dalam <30 detik. Access JWT W7 hanya 30 detik; login ulang jika manual. Tidak mengirim pesan ke layanan luar.",
++    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
++  },
++  "item": [
++    {
++      "name": "01 Register pelanggan acak",
++      "request": {
++        "method": "POST",
++        "header": [
++          {
++            "key": "Content-Type",
++            "value": "application/json"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/auth/register",
++        "body": {
++          "mode": "raw",
++          "raw": "{\n  \"pengguna_nama\": \"{{demo_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
++          "options": {
++            "raw": {
++              "language": "json"
++            }
++          }
++        }
++      },
++      "event": [
++        {
++          "listen": "prerequest",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.environment.set(\"demo_user\", \"demo\"+Date.now()+Math.floor(Math.random()*1000));"
++            ]
++          }
++        },
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
++              "pm.environment.set(\"user_id\", pm.response.json().id);",
++              "pm.test(\"Rahasia tidak bocor\",()=>{const j=pm.response.json(); pm.expect(j).not.to.have.property(\"api_key\"); pm.expect(j).not.to.have.property(\"pengguna_password\");});"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "02 Login pelanggan",
++      "request": {
++        "method": "POST",
++        "header": [
++          {
++            "key": "Content-Type",
++            "value": "application/json"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/auth/login",
++        "body": {
++          "mode": "raw",
++          "raw": "{\n  \"pengguna_nama\": \"{{demo_user}}\",\n  \"pengguna_password\": \"Tester123!\"\n}",
++          "options": {
++            "raw": {
++              "language": "json"
++            }
++          }
++        }
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++              "pm.environment.set(\"access_token\", pm.response.json().accessToken);"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "03 Generate key",
++      "request": {
++        "method": "POST",
++        "header": [
++          {
++            "key": "Authorization",
++            "value": "Bearer {{access_token}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/api-key/generate"
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
++              "pm.environment.set(\"api_key\", pm.response.json().api_key);"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "04 Generate kedua ditolak",
++      "request": {
++        "method": "POST",
++        "header": [
++          {
++            "key": "Authorization",
++            "value": "Bearer {{access_token}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/api-key/generate"
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "05 Partner tanpa key ditolak",
++      "request": {
++        "method": "GET",
++        "header": [],
++        "url": "{{base_url}}/api/v1/partner/ringkasan"
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "06 Basic mendapat ringkasan",
++      "request": {
++        "method": "GET",
++        "header": [
++          {
++            "key": "X-API-Key",
++            "value": "{{api_key}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/partner/ringkasan"
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++              "pm.test(\"Sisa harian 99\",()=>pm.expect(pm.response.headers.get(\"X-Daily-Remaining\")).to.eql(\"99\"));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "07 Basic ditolak analitik",
++      "request": {
++        "method": "GET",
++        "header": [
++          {
++            "key": "X-API-Key",
++            "value": "{{api_key}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/partner/analitik"
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "08 Visitor tidak dapat upgrade sendiri",
++      "request": {
++        "method": "PATCH",
++        "header": [
++          {
++            "key": "Content-Type",
++            "value": "application/json"
++          },
++          {
++            "key": "Authorization",
++            "value": "Bearer {{access_token}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
++        "body": {
++          "mode": "raw",
++          "raw": "{\n  \"api_level\": \"premium\"\n}",
++          "options": {
++            "raw": {
++              "language": "json"
++            }
++          }
++        }
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "09 Login admin demo",
++      "request": {
++        "method": "POST",
++        "header": [
++          {
++            "key": "Content-Type",
++            "value": "application/json"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/auth/login",
++        "body": {
++          "mode": "raw",
++          "raw": "{\n  \"pengguna_nama\": \"admin\",\n  \"pengguna_password\": \"Admin123!\"\n}",
++          "options": {
++            "raw": {
++              "language": "json"
++            }
++          }
++        }
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++              "pm.environment.set(\"admin_token\", pm.response.json().accessToken);"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "10 Admin mengaktifkan Premium",
++      "request": {
++        "method": "PATCH",
++        "header": [
++          {
++            "key": "Content-Type",
++            "value": "application/json"
++          },
++          {
++            "key": "Authorization",
++            "value": "Bearer {{admin_token}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
++        "body": {
++          "mode": "raw",
++          "raw": "{\n  \"api_level\": \"premium\"\n}",
++          "options": {
++            "raw": {
++              "language": "json"
++            }
++          }
++        }
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "11 Premium mengakses analitik",
++      "request": {
++        "method": "GET",
++        "header": [
++          {
++            "key": "X-API-Key",
++            "value": "{{api_key}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/partner/analitik"
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "12 Ringkasan pemakaian",
++      "request": {
++        "method": "GET",
++        "header": [
++          {
++            "key": "Authorization",
++            "value": "Bearer {{access_token}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/api-key/me"
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++              "pm.test(\"Paket Premium\",()=>pm.expect(pm.response.json().api_level).to.eql(\"premium\"));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "13 Regenerate key",
++      "request": {
++        "method": "POST",
++        "header": [
++          {
++            "key": "Authorization",
++            "value": "Bearer {{access_token}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/api-key/regenerate"
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
++              "pm.environment.set(\"old_api_key\", pm.environment.get(\"api_key\"));",
++              "pm.environment.set(\"api_key\", pm.response.json().api_key);"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "14 Key lama dicabut",
++      "request": {
++        "method": "GET",
++        "header": [
++          {
++            "key": "X-API-Key",
++            "value": "{{old_api_key}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/partner/ringkasan"
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "15 Key baru berhasil",
++      "request": {
++        "method": "GET",
++        "header": [
++          {
++            "key": "X-API-Key",
++            "value": "{{api_key}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/partner/ringkasan"
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "16 Paket tidak dikenal ditolak",
++      "request": {
++        "method": "PATCH",
++        "header": [
++          {
++            "key": "Content-Type",
++            "value": "application/json"
++          },
++          {
++            "key": "Authorization",
++            "value": "Bearer {{admin_token}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
++        "body": {
++          "mode": "raw",
++          "raw": "{\n  \"api_level\": \"gold\"\n}",
++          "options": {
++            "raw": {
++              "language": "json"
++            }
++          }
++        }
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "17 Admin downgrade ke Basic",
++      "request": {
++        "method": "PATCH",
++        "header": [
++          {
++            "key": "Content-Type",
++            "value": "application/json"
++          },
++          {
++            "key": "Authorization",
++            "value": "Bearer {{admin_token}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/api-key/level/{{user_id}}",
++        "body": {
++          "mode": "raw",
++          "raw": "{\n  \"api_level\": \"basic\"\n}",
++          "options": {
++            "raw": {
++              "language": "json"
++            }
++          }
++        }
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
++            ]
++          }
++        }
++      ]
++    },
++    {
++      "name": "18 Analitik setelah downgrade ditolak",
++      "request": {
++        "method": "GET",
++        "header": [
++          {
++            "key": "X-API-Key",
++            "value": "{{api_key}}"
++          }
++        ],
++        "url": "{{base_url}}/api/v1/partner/analitik"
++      },
++      "event": [
++        {
++          "listen": "test",
++          "script": {
++            "type": "text/javascript",
++            "exec": [
++              "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
++            ]
++          }
++        }
++      ]
++    }
++  ]
++}
+--- /dev/null
++++ b/postman/bookdata-local.postman_environment.json
+@@ -0,0 +1,48 @@
++{
++  "name": "BookData local",
++  "values": [
++    {
++      "key": "base_url",
++      "value": "http://localhost:3001",
++      "enabled": true,
++      "type": "default"
++    },
++    {
++      "key": "demo_user",
++      "value": "",
++      "enabled": true,
++      "type": "default"
++    },
++    {
++      "key": "user_id",
++      "value": "",
++      "enabled": true,
++      "type": "default"
++    },
++    {
++      "key": "access_token",
++      "value": "",
++      "enabled": true,
++      "type": "secret"
++    },
++    {
++      "key": "admin_token",
++      "value": "",
++      "enabled": true,
++      "type": "secret"
++    },
++    {
++      "key": "api_key",
++      "value": "",
++      "enabled": true,
++      "type": "secret"
++    },
++    {
++      "key": "old_api_key",
++      "value": "",
++      "enabled": true,
++      "type": "secret"
++    }
++  ],
++  "_postman_variable_scope": "environment"
++}
+--- a/postman/SOA-Minggu7.postman_collection.json
++++ b/postman/SOA-Minggu7.postman_collection.json
+@@ -1553,7 +1553,7 @@
+                   "  pm.response.to.have.status(201);",
+                   "  const b = pm.response.json();",
+                   "  pm.expect(b).to.not.have.property('pengguna_password');",
+-                  "  pm.expect(b).to.have.property('api_key');   // terbit untuk Minggu 8",
++                  "  pm.expect(b).not.to.have.property('api_key'); // W8: key hanya dari generate",
+                   "  pm.expect(b.roles).to.eql('visitor');        // SELALU visitor",
+                   "  pm.expect(b.api_level).to.eql('basic'); // client tidak bisa memilih premium",
+                   "});"
